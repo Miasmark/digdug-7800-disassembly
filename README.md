@@ -55,9 +55,10 @@ python3 ../a7800-toolkit/tools/disasm.py "Dig Dug (NTSC) (Atari) (1987) (50CB13F
 
 ![Coverage map](docs/img/coverage-map.png)
 
-One large candidate-graphics region is confirmed and declared
-(`$C000`-`$CFFF`); the other (`$DFFF`-`$EBEB`, matching `CHARBASE = $E0`)
-is still an open hypothesis -- see `docs/FINDINGS.md`.
+Two graphics regions are confirmed and declared (`$C000`-`$CFFF`, and the
+`$E000` `CHARBASE` character sheet); a further stretch past it
+(`$E1FF`-`$EBEB`) shows sparse but real live evidence and is the next
+target -- see `docs/FINDINGS.md`.
 
 ## Reproducing the live findings
 

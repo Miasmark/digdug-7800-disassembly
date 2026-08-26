@@ -74,6 +74,20 @@
       "end": "rom:C300",
       "name": "dat_C25C",
       "note": "CONFIRMED: dat_C25C (2 bytes, xref rom:DA00) and dat_C25E (161 bytes, xref rom:D97E) already rendered correctly as data via the default fallback; declared to stop it showing as an unclaimed gap. Sits between sub_C24D and sub_C300 (both real code)."
+    },
+    {
+      "loc": "rom:DFFF",
+      "end": "rom:E0C4",
+      "gfx": true,
+      "name": "chr_rom_E000",
+      "note": "CONFIRMED three ways: (1) CHARBASE=$E0 by code (rom:D065, rom:DD93, both load #$E0 immediately before the write); (2) gfx.py's default indirect-mode render at --base 0xE000 shows legible 'ATARI' text and a full 0-9 digit set -- see docs/FINDINGS.md; (3) tools/live-slots.lua's post-fix data (30 references) lands entirely within $E000-$E0A8, cleanly avoiding sub_E0C4 (real code, $E0C4-$E0DB) rather than scattering across it the way stale/garbage reads would -- real evidence the walker's indirect-mode handling isn't as suspect here as first worried, not just a coincidence. Checked for the exact bug that bit chr_rom_C000 in the Centipede project before declaring anything: grepped for JSR/JMP into any dat_E0/E1 label, found nothing, so this boundary excludes the code island rather than swallowing it. Starts one byte before CHARBASE's own $E000 base, at $DFFF, because that's where the preceding code (L_DFFE, RTS) actually ends and this data actually begins -- not indicative of anything about CHARBASE itself, MARIA still reads from $E000."
+    },
+    {
+      "loc": "rom:E0DC",
+      "end": "rom:E1E9",
+      "gfx": true,
+      "name": "chr_rom_E0DC",
+      "note": "Continuation of chr_rom_E000, resuming after sub_E0C4 (real code, ends at $E0DB). Ends where sub_E1E9 (real code) begins. Not yet independently re-checked with a live display-list walk (see rom:E000-family header note in docs/FINDINGS.md on why the walker's indirect-mode handling is itself in question) -- declared on the strength of the code-boundary evidence and the same CHARBASE confirmation, not on a live reference landing specifically in this sub-range."
     }
   ],
   "notes": {

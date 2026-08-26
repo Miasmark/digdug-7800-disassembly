@@ -10,13 +10,14 @@ python3 ../a7800-toolkit/tools/disasm.py "Dig Dug (NTSC) (Atari) (1987) (50CB13F
 python3 ../a7800-toolkit/tools/verify.py "Dig Dug (NTSC) (Atari) (1987) (50CB13F3).a78" -d src
 ```
 
-Static coverage is **44.3%** as traced code (7255/16384 bytes), plus 3980
-bytes of declared data blocks -- **68.6%** accounted for overall, 5149
+Static coverage is **44.3%** as traced code (7255/16384 bytes), plus 4446
+bytes of declared data blocks -- **71.4%** accounted for overall, 4683
 bytes left as an honest gap. Round-trip is byte-identical throughout
-everything documented here. Two passes in: entry points and the
-self-modifying NMI, then a full display-list probe fix and the resulting
-`$C000`-`$CFFF` graphics region. The memory map's other large candidate
-(`$DFFF`-`$EBEB`, the `CHARBASE`-based indirect sheet) is still open.
+everything documented here. Three passes in: entry points and the
+self-modifying NMI, a full display-list probe fix and the resulting
+`$C000`-`$CFFF` graphics region, then the `$E000`-based character sheet.
+A large chunk of `$E1FF`-`$EBEB` is still open -- sparse, not dense, so
+likely a different kind of thing than the two confirmed sheets (see below).
 
 Vectors: `IRQ $EED8` `NMI $C15F` `RESET $D000`.
 
@@ -35,11 +36,9 @@ progress -- a detail worth remembering when that mechanism turns up in code.
 ## What's confirmed
 
 **`CHARBASE = $E0`**, by code, not guess: both writers (`rom:D065`,
-`rom:DD93`) load `#$E0` immediately before the write. The large gap around
-`$DFFF`-`$EBEB` (scattered, not yet one clean block) is consistent with this
-being the indirect-mode character/tile sheet, but that's still a hypothesis
--- no live display-list evidence has been trusted for this ROM yet (see
-below for why).
+`rom:DD93`) load `#$E0` immediately before the write. See "The `$E000`
+character sheet" below for how its extent was actually confirmed, once the
+display-list probe was trustworthy enough to use.
 
 **`ENTRY_Nmi` is self-modifying code, not a plain vector.** It reads
 `JMP ram_1FBD` -- an absolute jump to a fixed RAM address, not an indirect
@@ -121,11 +120,47 @@ four pieces (`gfx_C000`, `gfx_C162`, `dat_C25C`, `gfx_C362`) around those
 islands. This includes the `$C54A` bonus-digit graphics noted below, now
 confirmed live rather than just a rendering hint.
 
+## The `$E000` character sheet
+
+Confirmed three independent ways, not just one: (1) `CHARBASE = $E0` by
+code, already established; (2) `gfx.py`'s default indirect-mode render at
+`--base 0xE000` shows legible "ATARI" text and a full 0-9 digit set -- a
+direct visual check, the same technique that confirmed the other two
+projects' character sheets; (3) the filtered live display-list data (30
+references) lands entirely within `$E000`-`$E0A8`, cleanly avoiding
+`sub_E0C4` (real code at `$E0C4`-`$E0DB`) rather than scattering across it
+the way stale reads would -- real evidence the walker's indirect-mode
+handling works here, addressing a worry raised while fixing the two bugs
+above (the walker's address math was written for direct-mode MARIA
+entries; whether it's even meaningful for indirect-mode ones was an open
+question until this).
+
+Checked for the exact bug that bit `chr_rom_C000` in the Centipede project
+*before* declaring anything broad: grepped for `JSR`/`JMP` into any
+`dat_E0`/`dat_E1` label (none found), then found `sub_E0C4` and
+`sub_E1E9`/`sub_E1F7` sitting as real, already-traced code islands inside
+what visually renders as legible graphics -- exactly the shape of the
+earlier mistake, caught proactively this time instead of after the fact.
+Declared as two blocks around those islands (`chr_rom_E000`,
+`chr_rom_E0DC`), starting one byte early at `$DFFF` because that's where
+the preceding code actually ends, not because of anything about `CHARBASE`
+itself.
+
+**Past `$E1E9`, the picture changes.** `$E1FF`-`$EBEB` (roughly 2540 bytes
+across several gaps) has only 7 live references total, all plausible
+individual-object widths (11-32) but nowhere near the density of the
+confirmed sheets above. This reads as a different kind of region --
+individually-referenced sprites (Pooka, Fygar, rocks, veggies -- each only
+showing up when that specific thing is on screen, unlike the digging
+graphics referenced continuously) rather than one dense, continuously-used
+sheet. Not investigated further this pass; noted as the next lead rather
+than guessed at.
+
 ## What's still open
 
-* `$DFFF`-`$EBEB`, the other large candidate-graphics region (matching
-  `CHARBASE = $E0`), is still an unconfirmed hypothesis -- the live probe
-  that resolved `$C000`-`$CFFF` hasn't been pointed at it specifically yet.
+* `$E1FF`-`$EBEB` (see above) -- sparse live evidence, real character but
+  not yet pinned down; the next natural target given the tools now exist
+  and are trusted.
 * No gameplay logic (digging, the pump/harpoon stun, rock physics,
   ghost-phasing, the level-counter flower) has been traced yet.
 * The `$C54A` bonus-digit graphics haven't been cross-checked against the
