@@ -90,6 +90,12 @@ mame a7800 -rompath /path/to/bios -input_directory . \
 * `tools/live-slots-diag.lua` tags every out-of-range graphics reference
   with the exact frame/`DPPH`/`DPPL`/zone that produced it -- the tool that
   actually pinned down both bugs above.
+* `tools/probe-ram-snapshots.lua` snapshots RAM (zero page plus the
+  `$23xx`-`$27xx` object-table pages seen so far) once a second across a
+  whole recording, keeping only bytes that ever change -- this is how
+  `LivesRemaining`/`Score*`/death handling were confirmed. Unlike
+  Centipede's version, this ROM doesn't clear whole pages at boot, so the
+  page list here is a starting guess, not a confirmed map.
 
 ## Layout
 

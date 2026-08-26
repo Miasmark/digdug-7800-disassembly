@@ -32,5 +32,6 @@
 live-slots-out.json
 live-slots-diag-out.json
 dpph-history-out.json
+ram-snapshots-out.json
 
 .DS_Store

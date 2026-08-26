@@ -156,14 +156,69 @@ graphics referenced continuously) rather than one dense, continuously-used
 sheet. Not investigated further this pass; noted as the next lead rather
 than guessed at.
 
+## Gameplay logic: lives, score, and death
+
+First pass at gameplay logic, using a new `tools/probe-ram-snapshots.lua`
+(same shape as Centipede's -- periodic snapshots, not per-write logging)
+scoped to zero page and the `$23xx`-`$27xx` object-table pages seen
+referenced so far during boot init. Unlike Centipede/Ballblazer, this ROM's
+boot code (`rom:sub_D057`) doesn't clear whole RAM pages in one sweep --
+it clears specific, narrow ranges directly -- so there was no single
+"boot-cleared pages" list to lean on for scoping the probe the way there
+was for the other two; this is a starting guess based on what's already
+been read, not a confirmed map of all game state.
+
+**`LivesRemaining` ($009E, `+X` for the current player) -- confirmed live,
+cleanly.** Counts 5->4->3->2->1->0 three separate times across the whole
+recording, resetting to 5 each time (frames 1980, 12540, 24300) in exact
+lockstep with `NewGameFlag` ($00A0) pulsing and `ScoreHi` resetting to 0 --
+matches the manual's "5 starting lives" exactly. Static reading found both
+directions: `rom:DF9E` increments it (capped at 10, from the extra-life
+award path below), and `rom:DC6F` decrements it (from the death-handling
+routine, `rom:DC41`).
+
+**The death-handling routine (`rom:DC41`) is 2-player-aware**, even though
+this project's own recording never exercised 2-player mode to confirm it
+live: it plays a short death animation, decrements the current player's
+`LivesRemaining`, and -- only if that hits zero -- checks the *other*
+player's `LivesRemaining` (`Y = CurrentPlayer XOR 1`) before deciding the
+game is really over. If either player still has lives, it falls through to
+`sub_DD3B` instead of ending the game -- the same routine the extra-life
+award path calls, suggesting a shared "life gained/still alive" 
+notification rather than two separate mechanisms.
+
+**Score (`ScoreLo`/`ScoreMid`/`ScoreHi`, `$00A2`/`$00A4`/`$00A6`, `+X`) and
+the extra-life threshold check are one routine, confirmed by the arithmetic
+itself** (`rom:DF7D`, `SED` at `rom:DF80`, BCD carry chained across all
+three bytes) -- and its threshold check (`CMP #$02`, `AND #$0F`/`BEQ`,
+`CMP #$05` against the new high digit) matches the manual's extra-life rule
+(20,000 and 50,000, then every 50,000 after) closely enough by shape to be
+convincing, though the exact digit-place arithmetic hasn't been traced
+byte-by-byte the way `LivesRemaining` was live-confirmed.
+
+**Not yet identified**: digging, the pump/harpoon stun, rock physics,
+ghost-phasing, and the level-counter flower -- none of these mechanics have
+been located in code yet. `sub_D753` (one of the five subroutines gated by
+`ram_0084`, an as-yet-unnamed "game active" flag in the main loop) looks
+like enemy AI/movement decision code (reads a direction table, `dat_E2AA`,
+and compares against wall/obstacle data) rather than anything to do with
+digging specifically -- a lead for the AI/movement side, not the terrain
+side.
+
 ## What's still open
 
+* Digging, the pump/harpoon stun, rock physics, ghost-phasing, and the
+  level-counter flower -- no gameplay mechanic beyond lives/score/death is
+  identified yet.
 * `$E1FF`-`$EBEB` (see above) -- sparse live evidence, real character but
   not yet pinned down; the next natural target given the tools now exist
   and are trusted.
-* No gameplay logic (digging, the pump/harpoon stun, rock physics,
-  ghost-phasing, the level-counter flower) has been traced yet.
+* The extra-life threshold check's exact digit-place arithmetic isn't
+  traced byte-by-byte, unlike `LivesRemaining`'s clean live confirmation.
 * The `$C54A` bonus-digit graphics haven't been cross-checked against the
   manual's exact point-value table.
 * Roughly a dozen small scattered gaps remain in `$D000`-`$FFFF`, not yet
   swept the way Centipede's small gaps were.
+* `ram_0084`'s exact role (gates five of the main loop's subroutines) isn't
+  confirmed -- "game active vs. attract/paused" is a guess from the shape
+  of the gate, not checked live.
