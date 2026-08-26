@@ -1,0 +1,53 @@
+{
+  "_README": [
+    "Started by init.py from Dig Dug (NTSC) (Atari) (1987) (50CB13F3).a78.",
+    "",
+    "Every human judgement about this ROM lives in this file; the",
+    "generated listings are disposable, so renaming is free.",
+    "",
+    "What to do next, roughly in order:",
+    "",
+    "  1. python tools/disasm.py Dig Dug (NTSC) (Atari) (1987) (50CB13F3).a78 -c annotations.json",
+    "     Read the coverage it reports. Low coverage is normal at",
+    "     first and is the number you are trying to move.",
+    "",
+    "  2. Every unresolved indirect jump it reports is a hole. Add the",
+    "     target to `entries`, or the pointer pair to `ram_vectors` if",
+    "     the handler is installed into RAM.",
+    "",
+    "  3. python tools/audiotrace.py Dig Dug (NTSC) (Atari) (1987) (50CB13F3).a78 -c annotations.json",
+    "     Finds the sound code and the tables feeding it.",
+    "",
+    "  4. Name things in `labels` as soon as you know what they are.",
+    "",
+    "See docs/method.md for the working order and docs/pitfalls.md for",
+    "the traps that each cost real time."
+  ],
+  "entries": [
+    "rom:EED8",
+    "rom:C15F",
+    "rom:D000"
+  ],
+  "ram_vectors": [
+    ["0x1FBE", "0x1FBF"]
+  ],
+  "bankat": {},
+  "labels": {
+    "rom:EED8": "ENTRY_Irq",
+    "rom:C15F": "ENTRY_Nmi",
+    "rom:D000": "ENTRY_Reset"
+  },
+  "ram": {},
+  "comments": {
+    "rom:C15F": "ENTRY_Nmi is `JMP ram_1FBD` -- NOT indirect, a plain absolute jump to a fixed RAM address. CONFIRMED self-modifying: boot code (rom:sub_D057) writes $4C (the JMP opcode itself) to ram_1FBD, then the target's low/high bytes to ram_1FBE/ram_1FBF, assembling a literal `JMP $target` instruction in RAM at $1FBD-$1FBF. Declared ram_vectors on the [ram_1FBE, ram_1FBF] pair (the scanner doesn't need to know about the fixed $4C at $1FBD -- it only tracks the two address bytes) rather than trying to special-case self-modifying code in the tool.",
+    "rom:EE57": "VEC_EE57, found via the ram_1FBE/1FBF ram_vectors scan. A single, self-contained multi-stage DLI handler -- not a ping-pong chain between separate routines like Centipede's. Each stage sets a WSYNC then writes a MARIA palette-color-register pair (P5C1/P5C2, P6C1/P6C3, P7C1/P7C3 -- distinct color sets, presumably per screen band) via a shared `STA ram_1FBE / BNE L_EE8E` trampoline that re-arms the *same* routine at a different internal offset for the next interrupt. This is why only one external target was found: every re-arm points back inside code already being traced, so the scan has nothing further to discover."
+  },
+  "headers": {
+    "rom:C54A": "Renders cleanly at --direct 22 --lines 16 as legible bonus-point-value digit/text graphics (readable '...000' point values and what looks like a word fragment) -- NOT yet cross-checked against the manual's exact veggie/kill bonus table (400-8000 per https://atariage.com/manual_html_page.php?SoftwareID=2126), and NOT yet confirmed live (no display-list walk evidence trusted for this ROM yet -- see the header note on the B900-CFFF live-slots data below). Treat as a strong hint toward 'this general area is a bonus-digit sheet', not a confirmed block or boundary.",
+    "rom:B900": "tools/live-slots.lua (borrowed verbatim from Centipede) reported ~940 graphics references densely packed across $B900-$CFFF during run-01.inp. The $B900-$BFFF portion is NOT TRUSTED: those addresses are below where this cart's ROM is even mapped ($C000-$FFFF per survey.py), and they land inside code that's already traced and confirmed real (e.g. $B965 mirrors, under one hypothesis, to $F965 -- LDA ram_0080, ordinary game code, not graphics-shaped) -- most likely the DL walker read stale/garbage RAM (a torn or not-yet-fully-written display list) rather than genuine per-frame graphics use. NOT yet re-verified with a corrected or more careful probe. The $C000-$CFFF portion is more plausible (it lines up with the still-unclaimed gap there, and rom:C54A above renders cleanly at one specific address within it) but is also not live-confirmed yet by a trustworthy walk. Next step before believing any of this further: check whether Dig Dug's zone/DLL layout actually matches the walk_dl/walk_dll assumptions borrowed from Centipede (zone count, entry format) before trusting its output here the way it was trusted there."
+  },
+  "blocks": [],
+  "notes": {
+    "rom": "Dig Dug (NTSC) (Atari) (1987) (50CB13F3).a78\nmapper linear, 16 KB, NTSC\nno POKEY declared; audio is the TIA's two voices\n\nVectors: IRQ $EED8  NMI $C15F  RESET $D000\n\nWritten by init.py. Everything here is read from the cartridge; the\njudgement calls are yours to add."
+  }
+}
