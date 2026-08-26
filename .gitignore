@@ -30,5 +30,7 @@
 # the tools/*.lua scripts. Not the primary record (annotations.json and
 # docs/FINDINGS.md are); regenerate as needed.
 live-slots-out.json
+live-slots-diag-out.json
+dpph-history-out.json
 
 .DS_Store

@@ -43,10 +43,39 @@
     "rom:EE57": "VEC_EE57, found via the ram_1FBE/1FBF ram_vectors scan. A single, self-contained multi-stage DLI handler -- not a ping-pong chain between separate routines like Centipede's. Each stage sets a WSYNC then writes a MARIA palette-color-register pair (P5C1/P5C2, P6C1/P6C3, P7C1/P7C3 -- distinct color sets, presumably per screen band) via a shared `STA ram_1FBE / BNE L_EE8E` trampoline that re-arms the *same* routine at a different internal offset for the next interrupt. This is why only one external target was found: every re-arm points back inside code already being traced, so the scan has nothing further to discover."
   },
   "headers": {
-    "rom:C54A": "Renders cleanly at --direct 22 --lines 16 as legible bonus-point-value digit/text graphics (readable '...000' point values and what looks like a word fragment) -- NOT yet cross-checked against the manual's exact veggie/kill bonus table (400-8000 per https://atariage.com/manual_html_page.php?SoftwareID=2126), and NOT yet confirmed live (no display-list walk evidence trusted for this ROM yet -- see the header note on the B900-CFFF live-slots data below). Treat as a strong hint toward 'this general area is a bonus-digit sheet', not a confirmed block or boundary.",
-    "rom:B900": "tools/live-slots.lua (borrowed verbatim from Centipede) reported ~940 graphics references densely packed across $B900-$CFFF during run-01.inp. The $B900-$BFFF portion is NOT TRUSTED: those addresses are below where this cart's ROM is even mapped ($C000-$FFFF per survey.py), and they land inside code that's already traced and confirmed real (e.g. $B965 mirrors, under one hypothesis, to $F965 -- LDA ram_0080, ordinary game code, not graphics-shaped) -- most likely the DL walker read stale/garbage RAM (a torn or not-yet-fully-written display list) rather than genuine per-frame graphics use. NOT yet re-verified with a corrected or more careful probe. The $C000-$CFFF portion is more plausible (it lines up with the still-unclaimed gap there, and rom:C54A above renders cleanly at one specific address within it) but is also not live-confirmed yet by a trustworthy walk. Next step before believing any of this further: check whether Dig Dug's zone/DLL layout actually matches the walk_dl/walk_dll assumptions borrowed from Centipede (zone count, entry format) before trusting its output here the way it was trusted there."
+    "rom:C54A": "Renders cleanly at --direct 22 --lines 16 as legible bonus-point-value digit/text graphics (readable '...000' point values and what looks like a word fragment) -- NOT yet cross-checked against the manual's exact veggie/kill bonus table (400-8000 per https://atariage.com/manual_html_page.php?SoftwareID=2126). Now also confirmed live -- see the rom:C162 and rom:C362 blocks -- as part of the same graphics region this address sits inside.",
+    "rom:C162": "CONFIRMED, root cause found: the ~940-reference $B900-$CFFF dataset from an early pass (tools/live-slots.lua, borrowed verbatim from Centipede) was largely garbage, but not for the reason first guessed. Two distinct bugs, found with tools/dpph-history.lua (logs every DPPH/DPPL change with its frame number) and tools/live-slots-diag.lua (tags every out-of-range reference with the frame/DPPH/DPPL/zone that produced it): (1) DPPH holds a bogus boot-time value ($1F, paired with one-off DPPL values $84/$5D) from frame 16 to frame 165 before settling into the real, stable base ($23xx, with DPPL alternating $5D/$A2 every single frame -- a genuine double-buffer, not a bug) -- fixed with a 200-frame settle gate in live-slots.lua (a first attempt at 120 frames wasn't long enough, verified against this same recording before trusting the larger number). (2) A smaller, ongoing torn-read artifact survives the settle fix -- a minority of walked entries (340 of 1072, all landing below $C000, several independently confirmed to fall on already-traced real code when treated as 16K-mirrored ROM addresses) are still garbage on some frames, most likely a genuine emulation-timing race between when the CPU updates a display-list entry and when the once-per-frame Lua callback reads it. Not chased further into MAME's own frame-timing internals -- filtered out instead (discard every reference below $C000, since that's not real ROM space regardless of cause) the same way Centipede's PC-tagged DMA-misattribution reads were filtered by 'impossible as a real address/PC', rather than trusted. The remaining 732 references are dense and consistent across every page from $C000 to $CFFF, and this range holds no already-confirmed code except ENTRY_Nmi's own 3 bytes at $C15F ($C000-$C15E and $C162-$C24C were already-open gaps; sub_C24D and the C300-C361 code block were already correctly traced) -- exactly the shape of a real, contiguous graphics sheet with two small code islands, the same pattern the other two projects' character sheets had. Declared as two blocks either side of what's already correctly traced (rom:C000-rom:C15F is a pre-existing gap not yet block-declared, still open -- see docs/FINDINGS.md for why it wasn't included this pass).",
+    "rom:C362": "Continuation of the rom:C162 graphics region, resuming after sub_C24D (real code) and the already-confirmed dat_C25C/dat_C25E data and the C300-C361 code block. Ends exactly at $D000 (ENTRY_Reset, real code) with a clean transition -- L_C361's RTS at $C361, then raw zero-padded bytes with no further code or existing labels all the way to $D000. This boundary was already correctly found by the static tracer alone, before any live evidence existed; the live data (dense references throughout) confirms it rather than having been needed to find it."
   },
-  "blocks": [],
+  "blocks": [
+    {
+      "loc": "rom:C000",
+      "end": "rom:C15F",
+      "gfx": true,
+      "name": "gfx_C000",
+      "note": "CONFIRMED LIVE (43 references, all in the $C078-$C0FE sub-range, tools/live-slots.lua post-fix) plus already-correct static data (dat_C000/C008/C031/C035/C038/C03A/C03B/C04E/C100/C155, each with a real xref) covering the rest -- one block spanning all of it, same family as gfx_C162/gfx_C362, since it's evidently the same resource. Ends exactly where ENTRY_Nmi's 3-byte JMP begins."
+    },
+    {
+      "loc": "rom:C162",
+      "end": "rom:C24D",
+      "gfx": true,
+      "name": "gfx_C162",
+      "note": "CONFIRMED LIVE (tools/live-slots.lua, run-01.inp, post-fix -- see the header note). Ends where sub_C24D (real code) begins."
+    },
+    {
+      "loc": "rom:C362",
+      "end": "rom:D000",
+      "gfx": true,
+      "name": "gfx_C362",
+      "note": "CONFIRMED LIVE (tools/live-slots.lua, run-01.inp, post-fix). Includes the C54A bonus-digit graphics. Ends exactly at ENTRY_Reset ($D000, real code) with no gap -- see the header note."
+    },
+    {
+      "loc": "rom:C25C",
+      "end": "rom:C300",
+      "name": "dat_C25C",
+      "note": "CONFIRMED: dat_C25C (2 bytes, xref rom:DA00) and dat_C25E (161 bytes, xref rom:D97E) already rendered correctly as data via the default fallback; declared to stop it showing as an unclaimed gap. Sits between sub_C24D and sub_C300 (both real code)."
+    }
+  ],
   "notes": {
     "rom": "Dig Dug (NTSC) (Atari) (1987) (50CB13F3).a78\nmapper linear, 16 KB, NTSC\nno POKEY declared; audio is the TIA's two voices\n\nVectors: IRQ $EED8  NMI $C15F  RESET $D000\n\nWritten by init.py. Everything here is read from the cartridge; the\njudgement calls are yours to add."
   }

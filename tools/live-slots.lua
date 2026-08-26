@@ -67,8 +67,22 @@ function dump()
   print(string.format("frames=%d rom refs=%d", F, #parts))
 end
 
+-- CONFIRMED (tools/dpph-history.lua, run-01.inp -- re-read from its saved
+-- dpph-history-out.json, not re-derived from the aggregate counts alone,
+-- which don't show *when* things happen): DPPH holds the bogus boot value
+-- $1F from frame 16 all the way to frame 165, then settles into the real,
+-- stable base ($23xx, with DPPL alternating $5D/$A2 every single frame --
+-- a genuine double-buffer, not a bug) for the rest of the game. An initial
+-- fix used a 120-frame (2s) grace period on the theory that boot settles
+-- quickly; it didn't -- verified against this same recording, walking
+-- still produced garbage past frame 120 (500 bad refs by frame 132).
+-- Checking the actual per-frame history instead of assuming a grace period
+-- would be enough is what found the real number. 200 frames clears the
+-- confirmed 165-frame settle point with margin.
+local SETTLE_FRAMES = 200
+
 emu.register_frame_done(function()
   F = F + 1
-  if dpph and dppl then walk_dll((dpph << 8) | dppl) end
+  if F > SETTLE_FRAMES and dpph and dppl then walk_dll((dpph << 8) | dppl) end
   if F % 300 == 0 then dump() end
 end)

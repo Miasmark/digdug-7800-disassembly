@@ -10,9 +10,13 @@ python3 ../a7800-toolkit/tools/disasm.py "Dig Dug (NTSC) (Atari) (1987) (50CB13F
 python3 ../a7800-toolkit/tools/verify.py "Dig Dug (NTSC) (Atari) (1987) (50CB13F3).a78" -d src
 ```
 
-Static coverage is **44.3%** as traced code (7255/16384 bytes). Round-trip
-is byte-identical throughout everything documented here. This is day one --
-one recording processed, the memory map is nowhere near settled yet.
+Static coverage is **44.3%** as traced code (7255/16384 bytes), plus 3980
+bytes of declared data blocks -- **68.6%** accounted for overall, 5149
+bytes left as an honest gap. Round-trip is byte-identical throughout
+everything documented here. Two passes in: entry points and the
+self-modifying NMI, then a full display-list probe fix and the resulting
+`$C000`-`$CFFF` graphics region. The memory map's other large candidate
+(`$DFFF`-`$EBEB`, the `CHARBASE`-based indirect sheet) is still open.
 
 Vectors: `IRQ $EED8` `NMI $C15F` `RESET $D000`.
 
@@ -57,46 +61,74 @@ then re-arms *itself* at a different internal offset via a shared
 `ram_vectors` scan only found one external target: every re-arm points back
 inside code already being traced.
 
-## What's a hint, not a finding yet
+## The display-list probe: two real bugs, found and fixed
 
-**A likely bonus-digit graphics sheet around `$C54A`.** Rendered with
-`gfx.py --direct 22 --lines 16`, it shows legible point-value digits
-(readable "...000" numbers) -- plausibly the pop-up bonus values for kills,
-rock drops, or veggies from the manual's scoring table. Not cross-checked
-against the manual's exact numbers yet, and critically **not confirmed
-live** -- see below for why that matters more here than it did on the last
-two projects.
+The first pass flagged `tools/live-slots.lua`'s output (~940 references
+densely packed across `$B900`-`$CFFF`) as untrustworthy rather than write it
+down as a finding -- a third of it sat below where this cart's ROM is even
+mapped, and landed on already-confirmed real code under a same-offset
+mirror theory. That distrust turned out to be correct, and chasing it down
+found two distinct, real bugs, not one.
 
-**A large, dense live-display-list reference set across `$B900`-`$CFFF`
-(~940 addresses) that should NOT be trusted yet.** `tools/live-slots.lua`
-was carried over verbatim from Centipede and pointed at `run-01.inp`. The
-portion in `$B900`-`$BFFF` is a red flag on its face: those addresses sit
-*below* where this cartridge's ROM is even mapped (`$C000`-`$FFFF`), and
-several of them land on bytes that are already traced as real, working code
-(`$B965`, for instance, would only make sense under a same-offset ROM-mirror
-theory as `$F965` -- which is `LDA ram_0080`, ordinary game logic, nothing
-graphics-shaped about it). The likely explanation is that the walker read a
-stale or torn display list -- leftover/uninitialized RAM content, not a
-frame MARIA ever actually displayed -- rather than anything about this ROM's
-real memory map. The `$C000`-`$CFFF` portion is more plausible (it lines up
-with an otherwise-unclaimed gap, and `$C54A` above renders cleanly) but
-isn't independently confirmed by anything live yet either.
+**Static reading narrowed the search first.** Both `DPPH` writers in
+currently-traced code (`rom:sub_D1BE`, `rom:sub_D1CA`) only ever load `#$23`
+or `#$25` -- both sensible RAM addresses. If the walker was landing on
+`$1F84`-shaped garbage, that value wasn't coming from any code this project
+had already read.
 
-**Before trusting this probe's output the way it was trusted on Centipede
-and Ballblazer**, the next step is checking whether `walk_dl`/`walk_dll`'s
-assumptions (MARIA's DLL/DL entry format is a hardware constant, so that
-part should be safe; the *zone count* and *per-zone object count* loop
-bounds borrowed from the previous project are not) actually match this
-game's real display-list layout, or building a version that also captures
-which frame each reference came from so a suspiciously-early or
-suspiciously-late cluster is easy to spot and discount.
+**Bug 1 -- boot takes far longer to settle than assumed.**
+`tools/dpph-history.lua` (new: logs every `DPPH`/`DPPL` change with its
+frame number, not just aggregate counts) showed `DPPH` sitting at a bogus
+boot value (`$1F`, paired with one-off `DPPL` values `$84`/`$5D`) from frame
+16 all the way to **frame 165**, before settling into the real, stable base
+(`$23xx`, with `DPPL` alternating `$5D`/`$A2` *every single frame* -- a
+genuine double-buffer, confirmed benign, not a bug). A first fix guessed a
+2-second (120-frame) grace period was enough; it wasn't -- verified against
+the same recording, walking past frame 120 still produced garbage (500 bad
+references by frame 132, checked with a second new tool,
+`tools/live-slots-diag.lua`, which tags every out-of-range reference with
+the exact frame/`DPPH`/`DPPL`/zone that produced it). Reading the actual
+per-frame history instead of assuming a round-number grace period was
+enough is what found the real 165-frame settle point; the fix uses a
+200-frame gate with margin.
+
+**Bug 2 -- a smaller, ongoing torn-read artifact survives the settle fix.**
+Even past frame 200, 340 of 1072 references still land below `$C000`,
+several confirmed (the same way as the boot-time ones) to fall on
+already-traced real code under the mirror theory. These aren't one-off --
+some addresses recur across the whole recording -- so this isn't boot
+garbage; it's most likely a genuine timing race between when the CPU
+finishes updating a display-list entry and when the once-per-frame Lua
+callback reads it, on some frames but not others. Not chased further into
+MAME's own frame-timing internals -- that's a different, deeper kind of
+investigation than this project needs. Instead, filtered rather than
+trusted: every reference below `$C000` is discarded, on the same principle
+as Centipede's PC-tagged DMA-misattribution filter -- an "impossible"
+address is disqualifying regardless of what produced it. The remaining 732
+references are the trustworthy dataset everything below is built on.
+
+## What's confirmed (continued)
+
+**`$C000`-`$CFFF` is one graphics/data resource**, confirmed by the filtered
+live data (dense and consistent across every page `$C0` through `$CF`) and
+checked the same way Centipede's `chr_rom_C000` boundary mistake taught
+this project to check: grepped for any `JSR`/`JMP` landing on a `dat_`
+label anywhere in this range before trusting it (none found), and confirmed
+`ENTRY_Nmi` (`$C15F`, 3 bytes) and two small already-traced code stretches
+(`sub_C24D`, and `sub_C300`-`L_C361`) sit as clean islands inside it rather
+than being silently swallowed by too-broad a block declaration. Declared as
+four pieces (`gfx_C000`, `gfx_C162`, `dat_C25C`, `gfx_C362`) around those
+islands. This includes the `$C54A` bonus-digit graphics noted below, now
+confirmed live rather than just a rendering hint.
 
 ## What's still open
 
-Everything else. This is the first pass: entry points, the self-modifying
-NMI, one graphics hint, and one probe result flagged as unreliable rather
-than trusted. No gameplay logic (digging, the pump/harpoon stun, rock
-physics, ghost-phasing, the level-counter flower) has been traced yet, and
-the memory map's two large candidate-graphics regions
-(`$C000`-`$CFFF`, `$DFFF`-`$EBEB`) are unconfirmed hypotheses, not
-declared blocks.
+* `$DFFF`-`$EBEB`, the other large candidate-graphics region (matching
+  `CHARBASE = $E0`), is still an unconfirmed hypothesis -- the live probe
+  that resolved `$C000`-`$CFFF` hasn't been pointed at it specifically yet.
+* No gameplay logic (digging, the pump/harpoon stun, rock physics,
+  ghost-phasing, the level-counter flower) has been traced yet.
+* The `$C54A` bonus-digit graphics haven't been cross-checked against the
+  manual's exact point-value table.
+* Roughly a dozen small scattered gaps remain in `$D000`-`$FFFF`, not yet
+  swept the way Centipede's small gaps were.

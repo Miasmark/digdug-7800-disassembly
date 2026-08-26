@@ -24,11 +24,13 @@ same knowledge.
 Working discipline, if you're picking this up: every claim about what a
 byte range does should be checked live before it's trusted, not just
 pattern-matched from a probe script carried over from a previous project --
-`docs/FINDINGS.md` documents a case (the `$B900`-`$CFFF` live-slots data)
-where a borrowed script's assumptions were noticed to be suspect and its
-output was deliberately *not* trusted rather than written down as a
-finding. Every `annotations.json` change is followed by JSON validation,
-`disasm.py` regeneration, and a `verify.py` byte-identical round-trip check.
+`docs/FINDINGS.md` documents a case (the original `$B900`-`$CFFF`
+live-slots data) where a borrowed script's assumptions were noticed to be
+suspect, its output deliberately *not* trusted, and the actual bugs (two of
+them -- a boot-settle timing issue and a smaller ongoing torn-read
+artifact) tracked down and fixed rather than worked around. Every
+`annotations.json` change is followed by JSON validation, `disasm.py`
+regeneration, and a `verify.py` byte-identical round-trip check.
 
 ## Reproducing it
 
@@ -53,10 +55,9 @@ python3 ../a7800-toolkit/tools/disasm.py "Dig Dug (NTSC) (Atari) (1987) (50CB13F
 
 ![Coverage map](docs/img/coverage-map.png)
 
-Two large candidate-graphics regions remain unclaimed (`$C000`-`$CFFF`,
-`$DFFF`-`$EBEB`) -- neither is declared as a block yet, on purpose, until
-there's live evidence trustworthy enough to pin down real boundaries. See
-`docs/FINDINGS.md`.
+One large candidate-graphics region is confirmed and declared
+(`$C000`-`$CFFF`); the other (`$DFFF`-`$EBEB`, matching `CHARBASE = $E0`)
+is still an open hypothesis -- see `docs/FINDINGS.md`.
 
 ## Reproducing the live findings
 
@@ -78,10 +79,16 @@ mame a7800 -rompath /path/to/bios -input_directory . \
   -video none -sound none -nothrottle -str 600
 ```
 
-`tools/live-slots.lua` walks the live display list to confirm graphics
-addresses -- carried over from the Centipede project as a starting point,
-but its output for this ROM is currently flagged as unreliable rather than
-trusted; see `docs/FINDINGS.md` before using it as evidence for anything.
+* `tools/live-slots.lua` walks the live display list to confirm graphics
+  addresses -- carried over from the Centipede project as a starting point;
+  its two real bugs on this ROM (a boot-settle timing issue, and a smaller
+  ongoing torn-read artifact) are fixed -- see `docs/FINDINGS.md`.
+* `tools/dpph-history.lua` logs every `DPPH`/`DPPL` register change with its
+  frame number -- built to find *when* a display-list base actually
+  settles, since aggregate occurrence counts alone don't show timing.
+* `tools/live-slots-diag.lua` tags every out-of-range graphics reference
+  with the exact frame/`DPPH`/`DPPL`/zone that produced it -- the tool that
+  actually pinned down both bugs above.
 
 ## Layout
 
