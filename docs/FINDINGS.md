@@ -196,29 +196,65 @@ three bytes) -- and its threshold check (`CMP #$02`, `AND #$0F`/`BEQ`,
 convincing, though the exact digit-place arithmetic hasn't been traced
 byte-by-byte the way `LivesRemaining` was live-confirmed.
 
-**Not yet identified**: digging, the pump/harpoon stun, rock physics,
-ghost-phasing, and the level-counter flower -- none of these mechanics have
-been located in code yet. `sub_D753` (one of the five subroutines gated by
-`ram_0084`, an as-yet-unnamed "game active" flag in the main loop) looks
-like enemy AI/movement decision code (reads a direction table, `dat_E2AA`,
-and compares against wall/obstacle data) rather than anything to do with
-digging specifically -- a lead for the AI/movement side, not the terrain
-side.
+## The terrain map, found -- the dig action itself, not yet
+
+**`TerrainMap` ($2600, 256 bytes) is the dirt/tunnel grid**, one byte per
+cell. Found by noticing `$26xx` used as a *direct-mode graphic page* in a
+display-list-entry builder (`rom:sub_D16C`) -- an address below where this
+cart's ROM is mapped, which only makes sense if MARIA is reading from a
+RAM-resident tile buffer built dynamically by the CPU, the same idea
+Centipede's mushroom field turned out to be (confirmed independently here,
+not carried over as an assumption from that project). Confirmed by the
+level-init code (`rom:D298`, `rom:sub_D2C0`): fills the map with one of
+three fixed values (`$20`/`$22`/`$1E`) depending on a level number computed
+mod 10, a `$24` border/edge fill, and a few `$4C`/`$4A` "already open" cells
+at fixed starting-tunnel positions.
+
+**`sub_D660` is the terrain-cell classifier**, confirmed by using the exact
+same threshold values the init code fills the map with (`CMP #$24`,
+`CMP #$1E`) to bucket a cell into "solid" / "open" / "packed dirt."
+
+**`sub_F952` uses the classifier for movement clamping**, not digging --
+it walks cells in a direction (from a 2-bit code in `ram_0080`) and
+accumulates a distance counter (`ram_009D`, via the tiny `sub_E1F7`) for
+each open cell until it hits something solid. This answers "how far can an
+object move before it's blocked," which is necessary for digging but isn't
+the dig action itself.
+
+**The actual "carve this cell open, award 10 points" write-back to
+`TerrainMap` hasn't been located.** Every write to `TerrainMap` found so
+far is inside the level-init code (`rom:D19E`-`rom:D42E`); nothing in the
+currently-traced ~44% of the ROM modifies it during ordinary gameplay. It's
+most likely sitting in one of the still-unreached code regions (the dozen
+small scattered gaps in `$D000`-`$FFFF`, or the sparse `$E1FF`-`$EBEB`
+stretch) rather than genuinely absent -- this project hasn't reached
+digging's own code yet, not ruled it out.
+
+**Still entirely unidentified**: the pump/harpoon stun, rock physics,
+ghost-phasing, and the level-counter flower. `sub_D753` (one of the five
+subroutines gated by `ram_0084`, an as-yet-unnamed "game active" flag in
+the main loop) looks like enemy AI/movement decision code (reads a
+direction table, `dat_E2AA`, and compares against wall/obstacle data)
+rather than digging specifically -- a lead for the AI/movement side, not
+the terrain side.
 
 ## What's still open
 
-* Digging, the pump/harpoon stun, rock physics, ghost-phasing, and the
-  level-counter flower -- no gameplay mechanic beyond lives/score/death is
-  identified yet.
-* `$E1FF`-`$EBEB` (see above) -- sparse live evidence, real character but
-  not yet pinned down; the next natural target given the tools now exist
-  and are trusted.
+* The dig action itself (see above) -- `TerrainMap` and its classifier are
+  found; the code that actually opens a cell during play is not.
+* The pump/harpoon stun, rock physics, ghost-phasing, and the level-counter
+  flower -- no lead yet on any of these.
+* `$E1FF`-`$EBEB` (see the graphics section above) -- sparse live evidence,
+  real character but not yet pinned down.
 * The extra-life threshold check's exact digit-place arithmetic isn't
   traced byte-by-byte, unlike `LivesRemaining`'s clean live confirmation.
 * The `$C54A` bonus-digit graphics haven't been cross-checked against the
   manual's exact point-value table.
 * Roughly a dozen small scattered gaps remain in `$D000`-`$FFFF`, not yet
-  swept the way Centipede's small gaps were.
+  swept the way Centipede's small gaps were -- now a more promising target
+  than before, since the dig action is likely hiding in one of them.
 * `ram_0084`'s exact role (gates five of the main loop's subroutines) isn't
   confirmed -- "game active vs. attract/paused" is a guess from the shape
   of the gate, not checked live.
+* `ram_009B,X`'s exact role (used as a level/round number in the terrain
+  init) isn't independently confirmed either.
