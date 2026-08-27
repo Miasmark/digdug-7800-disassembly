@@ -96,6 +96,11 @@ mame a7800 -rompath /path/to/bios -input_directory . \
   `LivesRemaining`/`Score*`/death handling were confirmed. Unlike
   Centipede's version, this ROM doesn't clear whole pages at boot, so the
   page list here is a starting guess, not a confirmed map.
+* `tools/probe-terrain-writes.lua` PC-tags every write to `TerrainMap`
+  (`$2600`-`$26FF`) -- this is what actually found the dig action
+  (`sub_D8E2`/`sub_FD43`), by pointing straight at the code instead of
+  guessing further from static reading. Writes to ordinary RAM can't be
+  MARIA DMA misattribution, so every PC found this way is a real writer.
 
 ## Layout
 

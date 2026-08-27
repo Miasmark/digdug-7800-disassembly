@@ -13,11 +13,12 @@ python3 ../a7800-toolkit/tools/verify.py "Dig Dug (NTSC) (Atari) (1987) (50CB13F
 Static coverage is **44.3%** as traced code (7255/16384 bytes), plus 4446
 bytes of declared data blocks -- **71.4%** accounted for overall, 4683
 bytes left as an honest gap. Round-trip is byte-identical throughout
-everything documented here. Three passes in: entry points and the
+everything documented here. Five passes in: entry points and the
 self-modifying NMI, a full display-list probe fix and the resulting
-`$C000`-`$CFFF` graphics region, then the `$E000`-based character sheet.
-A large chunk of `$E1FF`-`$EBEB` is still open -- sparse, not dense, so
-likely a different kind of thing than the two confirmed sheets (see below).
+`$C000`-`$CFFF` graphics region, the `$E000`-based character sheet, lives/
+score/death, and the terrain map with the actual dig action. A large chunk
+of `$E1FF`-`$EBEB` is still open -- sparse, not dense, so likely a
+different kind of thing than the two confirmed graphics sheets (see below).
 
 Vectors: `IRQ $EED8` `NMI $C15F` `RESET $D000`.
 
@@ -221,14 +222,39 @@ each open cell until it hits something solid. This answers "how far can an
 object move before it's blocked," which is necessary for digging but isn't
 the dig action itself.
 
-**The actual "carve this cell open, award 10 points" write-back to
-`TerrainMap` hasn't been located.** Every write to `TerrainMap` found so
-far is inside the level-init code (`rom:D19E`-`rom:D42E`); nothing in the
-currently-traced ~44% of the ROM modifies it during ordinary gameplay. It's
-most likely sitting in one of the still-unreached code regions (the dozen
-small scattered gaps in `$D000`-`$FFFF`, or the sparse `$E1FF`-`$EBEB`
-stretch) rather than genuinely absent -- this project hasn't reached
-digging's own code yet, not ruled it out.
+**Found the dig action itself, by tapping `TerrainMap` directly rather than
+guessing further from static reading.** A new `tools/probe-terrain-writes.lua`
+(PC-tagged write-tap, same idea as Centipede's `probe-mushroom-writes.lua`
+-- MARIA never writes to RAM, so every hit is a genuine 6502 writer, no
+DMA-misattribution filtering needed) pointed straight at it:
+
+* **`sub_C30A`** converts a pixel `(X,Y)` position to a `TerrainMap` index
+  and reads the cell -- `Y>>3` for the row, `X>>2` indexing a
+  row-to-table lookup (`ram_2490,X`) that indexes the same per-row
+  base-offset table (`dat_E7BF`) the display-list builder and level-init
+  code both already used.
+* **`sub_D8E2`** is the dig-check-and-erode routine: picks one of several
+  erosion tables based on the current movement/turn state, computes the
+  target cell's position (current position plus a per-direction offset),
+  and -- only if that cell isn't already solid/border (`CMP #$24`) --
+  calls `sub_FD43` to erode it. It checks a second, related cell the same
+  way right after, consistent with a tunnel opening affecting more than
+  one cell per step.
+* **`sub_FD43`** is the actual write-back: `(old_value - $24) >> 1` indexes
+  a small lookup table (chosen per-direction by the caller) to get the
+  *new* terrain value, then stores it into `TerrainMap`. Digging a cell
+  repeatedly walks it through a short sequence of intermediate
+  "partially dug" values rather than clearing to open in one step --
+  the exact table contents (how many steps, which values) aren't decoded
+  yet, and neither is where the 10-points-per-chunk score award happens
+  in this sequence, though `sub_DF7D` (the score-add/extra-life routine)
+  is presumably the thing it eventually calls.
+
+**Also found along the way**: the level-clear check (`rom:sub_DF33`) --
+loops over an 8-slot enemy-status array (`ram_00B2,X`, bit 7 = alive); if
+none are alive, plays a sound/animation, increments `LevelNumber` (this is
+what `ram_009B,X` turned out to be, confirmed by this exact increment),
+and re-runs the terrain-map init for the next level.
 
 **Still entirely unidentified**: the pump/harpoon stun, rock physics,
 ghost-phasing, and the level-counter flower. `sub_D753` (one of the five
@@ -240,10 +266,11 @@ the terrain side.
 
 ## What's still open
 
-* The dig action itself (see above) -- `TerrainMap` and its classifier are
-  found; the code that actually opens a cell during play is not.
 * The pump/harpoon stun, rock physics, ghost-phasing, and the level-counter
   flower -- no lead yet on any of these.
+* Exactly where/how digging awards its 10-points-per-chunk score, and the
+  contents of the erosion lookup tables (how many "partially dug" stages a
+  cell walks through).
 * `$E1FF`-`$EBEB` (see the graphics section above) -- sparse live evidence,
   real character but not yet pinned down.
 * The extra-life threshold check's exact digit-place arithmetic isn't
@@ -251,10 +278,10 @@ the terrain side.
 * The `$C54A` bonus-digit graphics haven't been cross-checked against the
   manual's exact point-value table.
 * Roughly a dozen small scattered gaps remain in `$D000`-`$FFFF`, not yet
-  swept the way Centipede's small gaps were -- now a more promising target
-  than before, since the dig action is likely hiding in one of them.
+  swept the way Centipede's small gaps were.
 * `ram_0084`'s exact role (gates five of the main loop's subroutines) isn't
   confirmed -- "game active vs. attract/paused" is a guess from the shape
   of the gate, not checked live.
-* `ram_009B,X`'s exact role (used as a level/round number in the terrain
-  init) isn't independently confirmed either.
+* `ram_00B2,X`'s exact role (the 8-slot alive-status array the level-clear
+  check reads) isn't independently confirmed as the enemy table specifically,
+  just plausible from its use.
