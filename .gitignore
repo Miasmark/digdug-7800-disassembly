@@ -38,5 +38,6 @@ flower-writes-out.json
 veggie-writes-out.json
 score-writes-out.json
 flower-candidate-out.json
+movement-script-out.json
 
 .DS_Store

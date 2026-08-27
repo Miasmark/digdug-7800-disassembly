@@ -10,31 +10,31 @@ python3 ../a7800-toolkit/tools/disasm.py "Dig Dug (NTSC) (Atari) (1987) (50CB13F
 python3 ../a7800-toolkit/tools/verify.py "Dig Dug (NTSC) (Atari) (1987) (50CB13F3).a78" -d src
 ```
 
-Static coverage is **51.7%** as traced code (8468/16384 bytes), and as of
-this pass **every remaining byte is accounted for** -- zero bytes left as
-an unclaimed gap (`disasm.py --gaps` reports "none"). Round-trip is
-byte-identical throughout everything documented here. Ten passes in: entry
-points and the self-modifying NMI, a full display-list probe fix and the
-resulting `$C000`-`$CFFF` graphics region, the `$E000`-based character
-sheet, lives/score/death, the terrain map with the actual dig action,
+Static coverage is **51.7%** as traced code (8468/16384 bytes), and every
+remaining byte is accounted for -- zero bytes left as an unclaimed gap
+(`disasm.py --gaps` reports "none"). Round-trip is byte-identical
+throughout everything documented here. Eleven passes in: entry points and
+the self-modifying NMI, a full display-list probe fix and the resulting
+`$C000`-`$CFFF` graphics region, the `$E000`-based character sheet,
+lives/score/death, the terrain map with the actual dig action,
 death/ghosts/(tentatively) rocks, the pump/harpoon stun end to end, a
 second RAM-vector pattern (a computed jump table), the rock-settle/
 veggie-appearance mechanism and the level-counter flower disambiguated and
-confirmed, and -- this pass -- a systematic sweep of every remaining gap:
-small already-referenced tables declared, several more trial-entry code
-islands found by hand-reading raw bytes past a dead `RTS`/`JMP`, a whole
-second `chr_rom_*` character-sheet region (`$E1FF`-`$EBEB`, matching the
-confirmed `$E000` sheet's byte signature) declared across seven blocks
-carved cleanly around the small code islands living inside it, and a
-fourth indirect-addressing pattern found (a per-object movement/behavior
-script table, `$EC00`-`$EE56`) rather than left unexplained. Not every
-declared block is independently *live*-confirmed the way the `$C000`/
-`$E000` sheets were -- several are declared on byte-signature and
-cross-reference evidence, the same standard `chr_rom_E0DC` was already
-held to; see the byte-density and boundary reasoning in
-`annotations.json`'s own `blocks` notes, and treat "gaps: none" as "every
-byte is claimed by something with a stated reason," not as "everything is
-understood."
+confirmed, a systematic sweep of every remaining gap (small
+already-referenced tables declared, more trial-entry code found by
+hand-reading raw bytes past a dead `RTS`/`JMP`, a second `chr_rom_*`
+character-sheet region declared across seven blocks, a fourth
+indirect-addressing pattern found rather than left unexplained), and --
+this pass -- live probes chasing down that sweep's open hedges: 4 of the 7
+new graphics blocks upgraded to live-confirmed, the movement-script
+mechanism verified to 93.5% against 15945 reconstructed table reads, and
+the veggie-threshold/timer sequence traced from shape-match to causally
+confirmed. Not every declared block is independently *live*-confirmed the
+way the `$C000`/`$E000` sheets were -- 3 of the 7 `chr_rom_*` blocks are
+still byte-signature/cross-reference only, the same standard
+`chr_rom_E0DC` was already held to; see `annotations.json`'s own `blocks`
+notes for which is which, and treat "gaps: none" as "every byte is claimed
+by something with a stated reason," not as "everything is understood."
 
 Vectors: `IRQ $EED8` `NMI $C15F` `RESET $D000`.
 
@@ -581,23 +581,83 @@ declared block with a stated reason** -- coverage moved 48.0% -> 51.7%
 to zero. Round-trip verified byte-identical throughout, and after every
 single addition, not just at the end.
 
+## Live-probing the new gaps' loose threads
+
+The user asked to "hit the live probes" next -- turn the freshly-declared
+blocks' open hedges into checked evidence instead of leaving them as
+byte-pattern guesses. Three separate probes, three different outcomes.
+
+**`tools/live-slots.lua`, rerun against `run-01.inp` after the
+`chr_rom_E1FF`-family blocks existed.** 1072 total display-list references
+walked (matching the count from before this project started declaring the
+new blocks -- consistent, not a regression). 7 of them land inside the
+newly-declared region: 4 of the 7 blocks (`chr_rom_E2FF`, `chr_rom_E500`,
+`chr_rom_E5FF`, `chr_rom_EA00`) each got at least one real hit, upgrading
+them from "byte-signature candidate" to "live-confirmed." The other 3
+(`chr_rom_E1FF`, `chr_rom_E400`, `chr_rom_E700`, `chr_rom_E900`) got none
+-- not evidence against them, the confirmed `$C000`/`$E000` sheets are
+sparsely referenced too and one recording won't touch every tile, but
+honestly flagged as still byte-signature-only. One correction fell out of
+this: `dat_E6AA` (a small table folded into `chr_rom_E5FF`, previously
+read as "position/pointer tuples, not pixel data" from its byte shape
+alone) got 3 real display-list hits landing inside it -- it's genuinely
+doing double duty, referenced both as a lookup table by name and as
+graphics tile data directly, not a misclassification. One single, isolated
+hit also landed inside `dat_EC00` (`$EE1F`) -- not enough on its own to
+call that block graphics too (see its own note), given this project has
+already documented a real minority torn-read artifact in this exact
+live-walking method that can land on valid-looking ROM addresses, not just
+the below-`$C000` garbage that's easy to filter.
+
+**`tools/probe-movement-script.lua`, purpose-built for `dat_EC00`.**
+PC/frame-tagged every write to the three per-object RAM arrays
+`rom:EF63`'s read loop uses (`ram_0067,X` the consumed value,
+`ram_2118,X` the per-object table base, `ram_2128,X` the per-object read
+index), 24000 frames, 36086 events. Reconstructed 15945 (base, index,
+value) triples from write order and checked each against the actual ROM
+byte at `$EE00+((base+index)&$FF)`: **93.5% matched exactly**, and not one
+of those matches reached past `$EE56` into `rom:VEC_EE57`'s own code,
+despite base values observed as high as 255 that would, combined with an
+unlucky index, land there in principle. The 6.5% mismatches all coincide
+with a saved index of 0, consistent with an unwound zero-byte redirect
+chain (the reconstruction only undoes one hop) rather than a broken
+formula. This took `rom:EF63` from "confirmed shape" to "verified
+mechanism, real numbers." The *values* consumed cluster tightly in a
+narrow even band (`$7C`-`$92`, 124-146) centered near `$80` -- reads like
+a small signed position/velocity delta biased by 128, not a discrete
+compass-direction enum, though the exact semantics aren't pinned down.
+
+**`ram_00C8`/`ram_00F1`, re-examined from data already on hand.** No new
+probe needed -- the existing per-second `tools/probe-ram-snapshots.lua`
+data already had the answer at finer grain than the earlier pass used.
+`ram_00C8` does hit exactly 2 repeatedly across the recording (once per
+level, occasionally reset early by a death via the same `rom:sub_D244`
+path the flower mechanism shares), and `ram_00F1` visibly starts climbing
+in the very same 60-frame sample window every time it happens -- e.g. `C8`
+hits 2 at frame 7260, `F1` is 9 and climbing (28, 47, 66, 84, 103, 122,
+141, 159, 178) over the next several samples, then drops to 0 around frame
+7860 as it nears `$C0` -- matching `rom:sub_F2E6`'s own threshold checks
+read earlier. A second full cycle at frames 11460-11700 shows the
+identical shape. Causally confirmed now, not just shape-matched -- though
+what the ~600-frame climb represents on screen (a veggie's visible
+duration? a jingle playing through?) still isn't pinned down.
+
 ## What's still open
 
 * What the flower table's byte values actually encode on screen (count vs.
   graphic/tile ID) -- the mechanism (`rom:D3EC`, once per level) is
   confirmed live; the visual mapping isn't.
-* Whether the newly-declared `chr_rom_E1FF`-family blocks are really
-  graphics -- strong byte-signature and boundary evidence, but not
-  independently live-verified the way `chr_rom_E000` was (see the note in
-  `annotations.json`'s `blocks` entries).
-* What `dat_EC00` (`$EC00`-`$EE56`) actually encodes -- the read mechanism
-  is confirmed (`rom:EF63`), the movement-script content isn't. A live
-  PC/value-tagged probe on the `$2118`/`$2128`-page RAM across a
-  recording with varied enemy behavior is the natural next step.
-* `ram_00C8`'s "exactly 2" threshold and the `ram_00F1`/`sub_F2E6` sequence
-  it kicks off aren't independently confirmed beyond the manual-line match
-  ("veggies appear after two rocks have fallen in a round") -- plausible,
-  not proven byte-by-byte.
+* Whether `chr_rom_E1FF`/`E400`/`E700`/`E900` (the 3 of 7 new blocks with
+  no live hit yet) are really graphics -- byte-signature and boundary
+  evidence only; their 4 siblings now have real display-list hits.
+* What the movement-script values in `dat_EC00` mean on screen (direction?
+  velocity?) -- the read mechanism and the actual table bytes are now
+  live-verified (`rom:EF63`, 93.5% of 15945 reconstructed reads matched
+  exactly); only the semantic mapping from value to enemy behavior is
+  still open.
+* What the `~600`-frame `ram_00F1` climb triggered at `ram_00C8`==2
+  actually corresponds to on screen -- the trigger and duration are now
+  live-confirmed; what it visibly does isn't.
 * `dat_E0A9`'s role in `rom:sub_F6B8` (stage 8, a per-tally lookup used
   just before the final stage) isn't decoded.
 * `sub_F760`'s reference point (rock position?) isn't confirmed.

@@ -57,11 +57,11 @@ python3 ../a7800-toolkit/tools/disasm.py "Dig Dug (NTSC) (Atari) (1987) (50CB13F
 
 Two graphics regions are live-confirmed and declared (`$C000`-`$CFFF`, and
 the `$E000` `CHARBASE` character sheet); a further stretch past it
-(`$E1FF`-`$EBEB`) is declared too, on byte-signature and cross-reference
-strength -- not yet independently live-verified the way the other two
-were -- see `docs/FINDINGS.md`. As of the latest pass every byte in the
-ROM is either traced code or a declared block (`disasm.py --gaps` reports
-none left).
+(`$E1FF`-`$EBEB`, declared as seven blocks) is now live-confirmed in part
+too -- 4 of the 7 blocks got real display-list hits from a
+`tools/live-slots.lua` rerun, the other 3 are still byte-signature-only --
+see `docs/FINDINGS.md`. Every byte in the ROM is either traced code or a
+declared block (`disasm.py --gaps` reports none left).
 
 ## Reproducing the live findings
 
@@ -128,6 +128,12 @@ mame a7800 -rompath /path/to/bios -input_directory . \
   frames, unthrottled, after a coarse per-second snapshot's silence on
   those same three cells initially (and wrongly) looked like it ruled the
   candidate out -- see `docs/pitfalls.md` for what actually happened.
+* `tools/probe-movement-script.lua` PC/frame-tags writes to the three
+  per-object RAM arrays driving the movement-script reader found at
+  `rom:EF63` -- reconstructs (table-base, index, value) triples from
+  write order and checks each against the actual ROM byte, which is how
+  that mechanism went from "confirmed shape" to "93.5% of 15945
+  reconstructed reads verified exactly."
 
 ## Layout
 
