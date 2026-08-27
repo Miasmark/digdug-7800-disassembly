@@ -13,11 +13,12 @@ python3 ../a7800-toolkit/tools/verify.py "Dig Dug (NTSC) (Atari) (1987) (50CB13F
 Static coverage is **44.3%** as traced code (7255/16384 bytes), plus 4446
 bytes of declared data blocks -- **71.4%** accounted for overall, 4683
 bytes left as an honest gap. Round-trip is byte-identical throughout
-everything documented here. Five passes in: entry points and the
+everything documented here. Six passes in: entry points and the
 self-modifying NMI, a full display-list probe fix and the resulting
 `$C000`-`$CFFF` graphics region, the `$E000`-based character sheet, lives/
-score/death, and the terrain map with the actual dig action. A large chunk
-of `$E1FF`-`$EBEB` is still open -- sparse, not dense, so likely a
+score/death, the terrain map with the actual dig action, and death/ghosts/
+(tentatively) rocks. A large chunk of `$E1FF`-`$EBEB` is still open --
+sparse, not dense, so likely a
 different kind of thing than the two confirmed graphics sheets (see below).
 
 Vectors: `IRQ $EED8` `NMI $C15F` `RESET $D000`.
@@ -251,23 +252,64 @@ DMA-misattribution filtering needed) pointed straight at it:
   is presumably the thing it eventually calls.
 
 **Also found along the way**: the level-clear check (`rom:sub_DF33`) --
-loops over an 8-slot enemy-status array (`ram_00B2,X`, bit 7 = alive); if
-none are alive, plays a sound/animation, increments `LevelNumber` (this is
-what `ram_009B,X` turned out to be, confirmed by this exact increment),
-and re-runs the terrain-map init for the next level.
+loops over `EnemyStatus` (`$00B2`, `+X`, an 8-slot status array); if none
+are alive, plays a sound/animation, increments `LevelNumber` (this is what
+`ram_009B,X` turned out to be, confirmed by this exact increment), and
+re-runs the terrain-map init for the next level.
 
-**Still entirely unidentified**: the pump/harpoon stun, rock physics,
-ghost-phasing, and the level-counter flower. `sub_D753` (one of the five
-subroutines gated by `ram_0084`, an as-yet-unnamed "game active" flag in
-the main loop) looks like enemy AI/movement decision code (reads a
-direction table, `dat_E2AA`, and compares against wall/obstacle data)
-rather than digging specifically -- a lead for the AI/movement side, not
-the terrain side.
+**A polarity correction, caught before it spread.** `sub_DF33`'s own logic
+(exits early, level *not* clear, the instant it finds a slot with bit 7
+*clear*) settles it directly: `EnemyStatus` bit 7 **set** (negative) means
+DEAD/inactive, not alive -- backwards from the first, unchecked assumption
+while reading it. Corrected at the source (`rom:DF33`'s own comment) rather
+than left to propagate into the newer notes below.
+
+## Death, ghosts, and (tentatively) rocks
+
+**`sub_F71C` looks like the player-touched-by-an-enemy death trigger.** For
+each active `EnemyStatus` slot, it checks the pixel distance between the
+player and that enemy; on a close-range hit, it sets `ram_0084 = 1` (the
+same flag that gates five of the main loop's subroutines -- so a hit
+*pauses* ordinary gameplay updates), loads a death-animation graphic from
+`dat_C155` (the exact table `rom:DC41`'s confirmed death routine also
+cycles through), plays a sound, and resets the ghost-transition state (see
+below). Everything about the shape matches death; the exact trigger-to-life-loss
+wiring back to `LivesRemaining` hasn't been traced further than this.
+
+**`sub_F760`, right after it, has the identical skeleton but checks
+distance against a different reference point** (`ram_004E`/`ram_0061`, not
+the player) and, on a hit, kills the enemy outright (zeroes its
+`EnemyStatus`) rather than triggering player death. A plausible read given
+the manual's "drop rocks on monsters" mechanic (1000-4000 points) is that
+this is the rock-kill check and the reference point is a rock's position --
+but that's not confirmed; the reference point's own identity hasn't been
+traced.
+
+**A real, multi-piece confirmation of the ghost-transition state machine**
+(`rom:sub_FA33`): `EnemyStatus` bits 1-2 carry a whole sub-state distinct
+from bit 7. Bit 1 set means "mid-transition" -- a per-slot animation-stage
+counter advances every time a per-slot timer counts down, and at stage 4
+plays a sound and clears bit 2 (not yet disambiguated which of
+"now ghosting" / "now solid again" that is). Only one enemy can be
+mid-transition at a time, gated by a global flag and a specific slot index.
+A periodic countdown (`ram_00B1`) is the likely trigger for *starting* a
+transition, consistent with the manual's "if not destroyed quickly" -- but
+the exact trigger condition isn't fully traced.
+
+**Still entirely unidentified**: the pump/harpoon stun and the
+level-counter flower. `sub_D753` (one of the five subroutines gated by
+`ram_0084`, now confirmed as a real "pause ordinary updates" flag rather
+than just a guess) looks like enemy AI/movement decision code rather than
+the harpoon specifically.
 
 ## What's still open
 
-* The pump/harpoon stun, rock physics, ghost-phasing, and the level-counter
-  flower -- no lead yet on any of these.
+* The pump/harpoon stun and the level-counter flower -- no lead yet on
+  either.
+* Rock physics -- `sub_F760`'s reference point (rock position?) isn't
+  confirmed, and there's no lead yet on rocks *falling* specifically.
+* The ghost-transition trigger condition, and which of bit 1/2 means what
+  exactly.
 * Exactly where/how digging awards its 10-points-per-chunk score, and the
   contents of the erosion lookup tables (how many "partially dug" stages a
   cell walks through).
@@ -279,9 +321,3 @@ the terrain side.
   manual's exact point-value table.
 * Roughly a dozen small scattered gaps remain in `$D000`-`$FFFF`, not yet
   swept the way Centipede's small gaps were.
-* `ram_0084`'s exact role (gates five of the main loop's subroutines) isn't
-  confirmed -- "game active vs. attract/paused" is a guess from the shape
-  of the gate, not checked live.
-* `ram_00B2,X`'s exact role (the 8-slot alive-status array the level-clear
-  check reads) isn't independently confirmed as the enemy table specifically,
-  just plausible from its use.
