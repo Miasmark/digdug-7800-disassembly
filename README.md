@@ -55,10 +55,13 @@ python3 ../a7800-toolkit/tools/disasm.py "Dig Dug (NTSC) (Atari) (1987) (50CB13F
 
 ![Coverage map](docs/img/coverage-map.png)
 
-Two graphics regions are confirmed and declared (`$C000`-`$CFFF`, and the
-`$E000` `CHARBASE` character sheet); a further stretch past it
-(`$E1FF`-`$EBEB`) shows sparse but real live evidence and is the next
-target -- see `docs/FINDINGS.md`.
+Two graphics regions are live-confirmed and declared (`$C000`-`$CFFF`, and
+the `$E000` `CHARBASE` character sheet); a further stretch past it
+(`$E1FF`-`$EBEB`) is declared too, on byte-signature and cross-reference
+strength -- not yet independently live-verified the way the other two
+were -- see `docs/FINDINGS.md`. As of the latest pass every byte in the
+ROM is either traced code or a declared block (`disasm.py --gaps` reports
+none left).
 
 ## Reproducing the live findings
 

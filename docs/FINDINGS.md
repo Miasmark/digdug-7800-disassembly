@@ -10,19 +10,31 @@ python3 ../a7800-toolkit/tools/disasm.py "Dig Dug (NTSC) (Atari) (1987) (50CB13F
 python3 ../a7800-toolkit/tools/verify.py "Dig Dug (NTSC) (Atari) (1987) (50CB13F3).a78" -d src
 ```
 
-Static coverage is **48.0%** as traced code (7864/16384 bytes), plus 4446
-bytes of declared data blocks -- **75.1%** accounted for overall, 4074
-bytes left as an honest gap. Round-trip is byte-identical throughout
-everything documented here. Nine passes in: entry points and the
-self-modifying NMI, a full display-list probe fix and the resulting
-`$C000`-`$CFFF` graphics region, the `$E000`-based character sheet, lives/
-score/death, the terrain map with the actual dig action, death/ghosts/
-(tentatively) rocks, the pump/harpoon stun end to end, a second
-RAM-vector pattern (a computed jump table) that recovered 497 bytes total,
-and -- closing that gap out completely -- the rock-settle/veggie-appearance
-mechanism disambiguated below. A large chunk of `$E1FF`-`$EBEB` is still
-open -- sparse, not dense, so likely a different kind of thing than the
-two confirmed graphics sheets (see below).
+Static coverage is **51.7%** as traced code (8468/16384 bytes), and as of
+this pass **every remaining byte is accounted for** -- zero bytes left as
+an unclaimed gap (`disasm.py --gaps` reports "none"). Round-trip is
+byte-identical throughout everything documented here. Ten passes in: entry
+points and the self-modifying NMI, a full display-list probe fix and the
+resulting `$C000`-`$CFFF` graphics region, the `$E000`-based character
+sheet, lives/score/death, the terrain map with the actual dig action,
+death/ghosts/(tentatively) rocks, the pump/harpoon stun end to end, a
+second RAM-vector pattern (a computed jump table), the rock-settle/
+veggie-appearance mechanism and the level-counter flower disambiguated and
+confirmed, and -- this pass -- a systematic sweep of every remaining gap:
+small already-referenced tables declared, several more trial-entry code
+islands found by hand-reading raw bytes past a dead `RTS`/`JMP`, a whole
+second `chr_rom_*` character-sheet region (`$E1FF`-`$EBEB`, matching the
+confirmed `$E000` sheet's byte signature) declared across seven blocks
+carved cleanly around the small code islands living inside it, and a
+fourth indirect-addressing pattern found (a per-object movement/behavior
+script table, `$EC00`-`$EE56`) rather than left unexplained. Not every
+declared block is independently *live*-confirmed the way the `$C000`/
+`$E000` sheets were -- several are declared on byte-signature and
+cross-reference evidence, the same standard `chr_rom_E0DC` was already
+held to; see the byte-density and boundary reasoning in
+`annotations.json`'s own `blocks` notes, and treat "gaps: none" as "every
+byte is claimed by something with a stated reason," not as "everything is
+understood."
 
 Vectors: `IRQ $EED8` `NMI $C15F` `RESET $D000`.
 
@@ -491,11 +503,97 @@ video-frame comparison across levels, not attempted here. See
 `docs/pitfalls.md` ("A periodic RAM snapshot can miss a real, frequent
 write") for the general lesson.
 
+## Sweeping every remaining gap
+
+With the veggie/flower work done, the user asked to "hit the gaps" --
+close out the remaining 20 unclaimed ranges (3936 bytes) rather than chase
+another single mechanic. Worked from smallest to largest:
+
+**Already-referenced data, just not block-declared.** Several gaps
+(`dat_D579`, `dat_D6EF`-family, `dat_D74F`, `dat_E2C6`-family,
+`dat_FD4B`) turned out to already be correctly rendered as data by
+`disasm.py`'s default fallback, complete with real cross-references from
+already-traced code -- they only showed as "gaps" because nothing had
+declared a `blocks` entry to say so, the same situation `dat_C25C` was in
+from an earlier pass. Declared each as a small block bounded by real code
+on both sides. `dat_FD4B` (164 bytes, a repeating 4-byte-tuple structure)
+reads like sound/music parameter data sitting next to `sub_FDEF`, this
+project's shared sound-trigger call -- not decoded further; `tools/
+audiotrace.py` in the toolkit is built for exactly this and hasn't been
+run against this ROM yet.
+
+**A byte-string signature, once: `FF76-FFFF` decodes as GCC's own
+copyright.** The first 10 bytes spell `GCC(C)1984` in ASCII -- General
+Computer Corporation, the developer this project already independently
+confirmed via the (private, reference-only) leaked-source cross-check on
+the Centipede project. The rest is unstructured filler ending in the
+hardware vectors at `$FFFA`-`$FFFF` (byte-verified against `NMI/RESET/
+IRQ` in `entries`) -- vector bytes are data, not code, so the tracer never
+touched them even though they were fully known.
+
+**More trial-entry code, found the same way as the veggie chase's `F52A`/
+`F6B8`.** Several small gaps turned out to be real code reachable only by
+hand-reading raw bytes past a dead-end `RTS` or unconditional `JMP` and
+recognizing real opcodes -- `rom:EED9` (another self-modifying DLI-chain
+stage, same family as the confirmed `VEC_EE57`, toggling `CTRL`/
+`CHARBASE` between $50/$E0 and $4B/$39 -- a *second* character-sheet base
+this project hasn't examined), and a chain in `$F07C`-`$F1E6` (`F07C`,
+`F082`, `F109`, `F175`, `F192`) that turned out to all be part of the same
+per-object dispatch family as `rom:sub_F280` -- which itself turned out to
+be a **third indirect-jump pattern**: a stored function pointer per
+object, built from two parallel RAM arrays (`ram_22F0,X`/`ram_2030,X`)
+rather than a fixed ROM table or a self-modifying single vector.
+`disasm.py`'s scanner cannot enumerate this kind at all, even in
+principle -- the targets are runtime object state, not compile-time
+constants. Recovered ~470 bytes this way.
+
+**A second `chr_rom_*` region, `$E1FF`-`$EBEB`, declared across seven
+blocks.** The byte pattern (dense `$00`/`$01`/`$40`/`$AA`/`$FF` runs) is
+the exact signature already confirmed for the `$E000` character sheet,
+and every block boundary lands exactly on a real, already-traced code
+island (`sub_E2BF`, `sub_E3E0`, `sub_E4DB`, `sub_E5E8`, `sub_E6E5`,
+`sub_E8F4`, `sub_E9F9`, `sub_EBEC`) with a script-swept check (every
+`JSR`/`JMP` in the traced program, checked for a target landing inside
+any of these ranges) confirming none of them swallow code -- the same
+precaution `chr_rom_E0DC` used, run once across the whole span rather
+than per-block. Several already-labeled small tables (including
+`dat_E8AA`/`dat_E8BD`/`dat_E8D0`, the flower-candidate tables from
+`rom:D3EC`) fold in cleanly at block tails. **Not live-verified** the way
+`chr_rom_E000` was, though -- declared on byte-signature and
+cross-reference strength, same standard as `chr_rom_E0DC` already used.
+
+**The last gap, `$EC00`-`$EE56`, is not graphics -- found a fourth
+indirect pattern instead of guessing.** The byte values here don't match
+the bit-plane signature at all (small values, mostly `$00`-`$35`).
+Instead of declaring it graphics on a hunch, searched for what actually
+reads it: `rom:EF63` builds a pointer with a fixed high byte (`$EE`) and
+a *runtime* low byte (`ram_2118,X`, per-object), walked with a
+per-object saved index (`ram_2128,X`) that treats a zero byte as a
+redirect/skip marker rather than data. Reads like a per-object movement/
+behavior script interpreter (one step per call, feeding `ram_0067,X`) --
+plausibly the Pooka/Fygar movement patterns the manual describes, but not
+decoded further. Declared as plain data, not `gfx`, since the pattern
+doesn't support that reading.
+
+**Net result: every byte in the ROM is now either traced code or a
+declared block with a stated reason** -- coverage moved 48.0% -> 51.7%
+(7864 -> 8468 bytes) and the gap report goes from 3936 bytes in 18 ranges
+to zero. Round-trip verified byte-identical throughout, and after every
+single addition, not just at the end.
+
 ## What's still open
 
 * What the flower table's byte values actually encode on screen (count vs.
   graphic/tile ID) -- the mechanism (`rom:D3EC`, once per level) is
   confirmed live; the visual mapping isn't.
+* Whether the newly-declared `chr_rom_E1FF`-family blocks are really
+  graphics -- strong byte-signature and boundary evidence, but not
+  independently live-verified the way `chr_rom_E000` was (see the note in
+  `annotations.json`'s `blocks` entries).
+* What `dat_EC00` (`$EC00`-`$EE56`) actually encodes -- the read mechanism
+  is confirmed (`rom:EF63`), the movement-script content isn't. A live
+  PC/value-tagged probe on the `$2118`/`$2128`-page RAM across a
+  recording with varied enemy behavior is the natural next step.
 * `ram_00C8`'s "exactly 2" threshold and the `ram_00F1`/`sub_F2E6` sequence
   it kicks off aren't independently confirmed beyond the manual-line match
   ("veggies appear after two rocks have fallen in a round") -- plausible,
@@ -511,11 +609,9 @@ write") for the general lesson.
 * Exactly where/how digging awards its 10-points-per-chunk score, and the
   contents of the erosion lookup tables (how many "partially dug" stages a
   cell walks through).
-* `$E1FF`-`$EBEB` (see the graphics section above) -- sparse live evidence,
-  real character but not yet pinned down.
 * The extra-life threshold check's exact digit-place arithmetic isn't
   traced byte-by-byte, unlike `LivesRemaining`'s clean live confirmation.
 * The `$C54A` bonus-digit graphics haven't been cross-checked against the
   manual's exact point-value table.
-* Roughly a dozen small scattered gaps remain in `$D000`-`$FFFF`, not yet
-  swept the way Centipede's small gaps were.
+* `dat_FD4B`'s sound/music data hasn't been run through `tools/
+  audiotrace.py`.
