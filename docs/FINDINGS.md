@@ -642,22 +642,89 @@ identical shape. Causally confirmed now, not just shape-matched -- though
 what the ~600-frame climb represents on screen (a veggie's visible
 duration? a jingle playing through?) still isn't pinned down.
 
+## Cross-checking against a private reference
+
+Following the same discipline this session already used on a different
+project: a privately-consulted, unlicensed historical source for this
+game was used strictly as a check on what's been found or missed here --
+never quoted, never copied into this repo, and every correction rederived
+independently from this project's own disassembly and live probes before
+being written down anywhere. Where the two disagreed, both readings are
+recorded rather than silently picking one.
+
+**Corroborated, not just matched:** the `ram_00C8`==2 / `ram_00F1`-climb
+sequence documented above lines up with a conceptually identical mechanic
+in that source, using the same two threshold constants (`$0E`/`$C0`) this
+project already found independently by reading its own code earlier this
+session -- settles what the ~600-frame climb most likely *is* (a
+fruit/veggie display-then-remove timer) without needing to trust the
+outside source for the constants themselves, since they were ours first.
+Similarly, the 5-slot `ObjSlot` pool structurally matches a same-sized
+falling-object pool concept in that source, reinforcing (not
+originating) a finding already reached here through live probing alone.
+
+**Genuinely disagreed, and left disagreeing:** that source describes its
+equivalent of the movement-script table (`dat_EC00`/`rom:EF63`) and the
+flower row (`rom:D3EC`) as computed differently than what this ROM's own
+bytes show -- monster direction computed live rather than read from a
+table, and the flower row computed arithmetically from the level number
+rather than looked up. Checked this project's own disassembly for a
+matching arithmetic routine and found only one relevant divide-by-10
+computation anywhere in the traced code, already accounted for as
+`rom:D298`'s terrain-pattern selector, serving a different purpose. Rather
+than force either finding to match the other, both are left honestly
+un-reconciled -- this project's own live-verified mechanisms stand as
+confirmed, while their *identity* (is `dat_EC00` really movement? is
+`rom:D3EC` really the flower row?) is downgraded back to open rather than
+assumed resolved. This is plausibly a genuine difference between what
+that source documents and this specific Atari 7800 port's own
+implementation, not an error on either side -- see the veggie point-value
+table below for the same pattern.
+
+**Disagreed on absolute values, kept this project's own reading:** the
+veggie point-value table (`VeggieValueTable`/`rom:F6C4`) decoded here is
+indexed differently and holds different numbers than that source's
+equivalent table. This project's own reading is independently
+ROM-byte-derived, live-verified, *and* matches the user's own real
+1000-point report exactly -- strictly stronger evidence than the outside
+source can offer for this specific cartridge -- so it stands as-is, with
+the mismatch noted as a probable scoring/indexing change this port's own
+developers made, not a correction needed here.
+
+**New, independently re-derived from this project's own code, prompted by
+a cross-check hint but not copied from it:** re-examining `rom:sub_FA33`'s
+stun-state machine (following a structural hint that it might not be
+strictly one-directional) found a second, previously-missed branch that
+*decrements* the same stage counter the original reading only ever saw
+incrementing -- a real correction to this project's own prior
+documentation, found by rereading this project's own bytes, not by
+trusting the outside description of it.
+
+**Lesson for the toolkit:** a private reference is exactly as useful for
+finding what a project got *wrong* as for confirming what it got right --
+and disagreement isn't automatically an error on either side, especially
+across different ports of the same game. The discipline that mattered
+here was re-deriving every claim from this project's own bytes before
+writing anything down, corroborated-or-not.
+
 ## What's still open
 
 * What the flower table's byte values actually encode on screen (count vs.
-  graphic/tile ID) -- the mechanism (`rom:D3EC`, once per level) is
-  confirmed live; the visual mapping isn't.
+  graphic/tile ID), and now also whether `rom:D3EC` is even the right
+  mechanism -- a cross-check raised doubt (see above) that this project's
+  own code doesn't yet resolve either way.
 * Whether `chr_rom_E1FF`/`E400`/`E700`/`E900` (the 3 of 7 new blocks with
   no live hit yet) are really graphics -- byte-signature and boundary
   evidence only; their 4 siblings now have real display-list hits.
-* What the movement-script values in `dat_EC00` mean on screen (direction?
-  velocity?) -- the read mechanism and the actual table bytes are now
-  live-verified (`rom:EF63`, 93.5% of 15945 reconstructed reads matched
-  exactly); only the semantic mapping from value to enemy behavior is
-  still open.
-* What the `~600`-frame `ram_00F1` climb triggered at `ram_00C8`==2
-  actually corresponds to on screen -- the trigger and duration are now
-  live-confirmed; what it visibly does isn't.
+* What the movement-script values in `dat_EC00` are actually *for* --
+  the read mechanism and the actual table bytes are live-verified
+  (`rom:EF63`, 93.5% of 15945 reconstructed reads matched exactly), but a
+  cross-check raised doubt about whether "monster movement" is even the
+  right subsystem (see above); the mechanism stands, its purpose doesn't.
+* `rom:sub_FA33`'s stun state machine: now known to be bidirectional (a
+  decrement branch was found alongside the original increment-only
+  reading), but which condition actually selects each branch isn't
+  traced.
 * `dat_E0A9`'s role in `rom:sub_F6B8` (stage 8, a per-tally lookup used
   just before the final stage) isn't decoded.
 * `sub_F760`'s reference point (rock position?) isn't confirmed.
