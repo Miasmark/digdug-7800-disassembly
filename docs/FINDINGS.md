@@ -13,13 +13,13 @@ python3 ../a7800-toolkit/tools/verify.py "Dig Dug (NTSC) (Atari) (1987) (50CB13F
 Static coverage is **44.3%** as traced code (7255/16384 bytes), plus 4446
 bytes of declared data blocks -- **71.4%** accounted for overall, 4683
 bytes left as an honest gap. Round-trip is byte-identical throughout
-everything documented here. Six passes in: entry points and the
+everything documented here. Seven passes in: entry points and the
 self-modifying NMI, a full display-list probe fix and the resulting
 `$C000`-`$CFFF` graphics region, the `$E000`-based character sheet, lives/
-score/death, the terrain map with the actual dig action, and death/ghosts/
-(tentatively) rocks. A large chunk of `$E1FF`-`$EBEB` is still open --
-sparse, not dense, so likely a
-different kind of thing than the two confirmed graphics sheets (see below).
+score/death, the terrain map with the actual dig action, death/ghosts/
+(tentatively) rocks, and the pump/harpoon stun end to end. A large chunk of
+`$E1FF`-`$EBEB` is still open -- sparse, not dense, so likely a different
+kind of thing than the two confirmed graphics sheets (see below).
 
 Vectors: `IRQ $EED8` `NMI $C15F` `RESET $D000`.
 
@@ -285,31 +285,54 @@ this is the rock-kill check and the reference point is a rock's position --
 but that's not confirmed; the reference point's own identity hasn't been
 traced.
 
-**A real, multi-piece confirmation of the ghost-transition state machine**
-(`rom:sub_FA33`): `EnemyStatus` bits 1-2 carry a whole sub-state distinct
-from bit 7. Bit 1 set means "mid-transition" -- a per-slot animation-stage
-counter advances every time a per-slot timer counts down, and at stage 4
-plays a sound and clears bit 2 (not yet disambiguated which of
-"now ghosting" / "now solid again" that is). Only one enemy can be
-mid-transition at a time, gated by a global flag and a specific slot index.
-A periodic countdown (`ram_00B1`) is the likely trigger for *starting* a
-transition, consistent with the manual's "if not destroyed quickly" -- but
-the exact trigger condition isn't fully traced.
+**A multi-piece state machine live in `EnemyStatus` bits 1-2**
+(`rom:sub_FA33`), first read as pure ghost-transition logic, **then
+reinterpreted once the harpoon mechanic below tied directly into it.** Bit
+1 set means "mid-sequence" -- a per-slot animation-stage counter advances
+every time a per-slot timer counts down, and at stage 4 plays a sound and
+clears bit 2. Only one enemy can be mid-sequence at a time, gated by a
+specific slot index and a flag that -- now confirmed -- is the harpoon-hit
+flag itself, not a separate ghost-specific one. Still open which of "now
+ghosting" / "stun wearing off" / "fully digested" stage 4 represents, and
+whether the ghost-conversion mechanic (a separate periodic countdown,
+`ram_00B1`, kicked on first fire-button press) is really this same sequence
+or a genuinely separate path that happens to share the plumbing.
 
-**Still entirely unidentified**: the pump/harpoon stun and the
-level-counter flower. `sub_D753` (one of the five subroutines gated by
-`ram_0084`, now confirmed as a real "pause ordinary updates" flag rather
-than just a guess) looks like enemy AI/movement decision code rather than
-the harpoon specifically.
+## The pump/harpoon stun, found end to end
+
+Followed the fire button forward from the input read to the actual hit
+detection, rather than guessing at any one piece in isolation:
+
+* **`sub_D6BA`** reads `INPT4,Y` (`Y = CurrentPlayer`) and builds
+  `FireHoldTimer` -- a hold-duration counter that resets to 0 the instant
+  the button releases and counts up while held, capping its behavior at
+  exactly 24 frames. Matches the manual's "press and hold, or pump
+  repeatedly" almost exactly.
+* **`sub_F7F6`** grows `HarpoonLength` by 1 each frame the harpoon is
+  extending -- but clamps it against `ram_009D`, the exact distance-so-far
+  value `sub_F952` (found while tracing terrain movement-clamping, above)
+  computes by walking `TerrainMap` cells in the facing direction. **The
+  harpoon reuses the terrain movement-clamp code and literally cannot
+  extend past a wall or solid dirt.** Resets `HarpoonLength` to a
+  "retracted" sentinel when the button is released.
+* **`sub_F901`/`sub_F90A`** compute the harpoon tip's screen position from
+  the player's position and `HarpoonLength` (with a left/right branch for
+  facing direction), then loop the 8 `EnemyStatus` slots checking each
+  one's proximity to that computed tip. **On a hit**: records the target in
+  `HarpoonTargetSlot`, sets `EnemyStatus,X = $07` (bits 0-2 all set -- the
+  stun pattern), and sets the flag `sub_FA33`'s state machine (above)
+  checks to start the stun-recovery sequence. This is the actual stun hit.
+
+**Still open**: the level-counter flower -- no lead yet.
 
 ## What's still open
 
-* The pump/harpoon stun and the level-counter flower -- no lead yet on
-  either.
+* The level-counter flower -- no lead yet.
 * Rock physics -- `sub_F760`'s reference point (rock position?) isn't
   confirmed, and there's no lead yet on rocks *falling* specifically.
-* The ghost-transition trigger condition, and which of bit 1/2 means what
-  exactly.
+* Which of the harpoon-stun state machine's stages means what (stunned /
+  recovering / fully killed), and whether ghost-conversion is really the
+  same sequence or a separate path sharing the same plumbing.
 * Exactly where/how digging awards its 10-points-per-chunk score, and the
   contents of the erosion lookup tables (how many "partially dug" stages a
   cell walks through).
