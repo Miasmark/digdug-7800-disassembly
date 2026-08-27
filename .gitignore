@@ -36,5 +36,7 @@ ram-snapshots-out.json
 terrain-writes-out.json
 flower-writes-out.json
 veggie-writes-out.json
+score-writes-out.json
+flower-candidate-out.json
 
 .DS_Store

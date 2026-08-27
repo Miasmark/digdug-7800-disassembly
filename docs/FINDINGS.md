@@ -387,9 +387,12 @@ removal).
 for a single isolated excursion (a value that sits at a common baseline the
 entire recording except one brief run) turned up `$00C5`/`$00FD` both
 activating for about 100 frames around frame ~4320-4440, immediately
-followed by a score jump of exactly 410 points (2830 -> 3240) -- inside the
-manual's 400-8000 veggie range and too clean to be coincidence. Neither
-address was in the disassembly yet. `tools/probe-veggie-writes.lua`
+followed by a score jump of 410 points (2830 -> 3240) nearby in time --
+inside the manual's 400-8000 veggie range, and taken at the time as
+confirmation. **That reading turned out to be wrong** -- see below, it was
+almost certainly a monster kill that happened to land close by; the real
+veggie value, decoded properly afterward, is exact. Neither
+`$00C5`/`$00FD` address was in the disassembly yet. `tools/probe-veggie-writes.lua`
 (PC-tagged, narrowed to exactly those two addresses after a too-wide first
 attempt on `$00C0`-`$00FF` drowned in 300k+ hits/3000 frames) caught every
 write: an 8-stage progression, `$00FD` counting up once per frame through
@@ -413,38 +416,92 @@ animation sequencer (`rom:sub_F50D` uses the stage value itself,
 `ObjSlotStage,X`, as the table index) driving a small pool of 5 slots
 (`rom:sub_F4EF` walks `X=4..0`, distinct from the 8 `EnemyStatus` enemy
 slots). The live-observed `$00C5`/`$00FD` sequence is exactly
-`ObjSlotStage`/`ObjSlotTimer` at slot 2. The final stage, `rom:sub_F6B8`,
-reads `ObjSlotRockTally,X`; if a rock has been attributed to this slot (via
-`RockOwnerSlot`, written by `sub_F5FB` when a rock settles) it looks up a
-value by that tally, ends the slot's animation, **and only then** loops the
-8 `EnemyStatus` slots and, for whichever one `RockOwnerSlot` points back at
-this ObjSlot, promotes its settle-latch (bit 6, set by `sub_F5FB`) into the
-confirmed dead/inactive bit (bit 7, from `rom:F71C`) -- the actual removal.
+`ObjSlotStage`/`ObjSlotTimer` at slot 2, and it runs through **stages 2-9**,
+not 2-7 as first assumed -- the lo/hi jump table (`dat_E0B0`/`dat_E0B8`) is
+actually 10 entries wide, not 8: reading it at `Y=8`/`Y=9` walks past the
+declared 8-byte tables into bytes that, by design or fortunate reuse, decode
+to two more real targets (`rom:F6B8`, `rom:F6C4`), both live-confirmed and
+now declared. See `docs/pitfalls.md` ("A computed jump table can be wider
+than its first N entries suggest") for the general lesson. `rom:sub_F6C4`
+(stage 9) is the actual finish: it unconditionally ends the slot's
+animation, then loops the 8 `EnemyStatus` slots and, for whichever one
+`RockOwnerSlot` points back at this ObjSlot, promotes its settle-latch (bit
+6, set by `sub_F5FB`) into the confirmed dead/inactive bit (bit 7, from
+`rom:F71C`) -- the actual rock removal.
 
 So: **`sub_F5FB` was never the rock's disappearance** -- from the player's
 seat that's exactly what it looks like ("just the sound and disappearing"),
 but the removal is deferred and piggybacks on whichever ObjSlot animation
 claimed the rock, which is the same machinery driving the veggie-appearance
-animation just traced live. That also lines up with a level-scoped counter
-in the same tail: `ram_00C8`, reset to 0 at level-init (`sub_D244`),
-increments once per completed ObjSlot animation, and on hitting **exactly
-2** seeds a follow-on sequence (`ram_00F1`, driven elsewhere by
-`sub_F2E6`) -- which matches the manual's own line, "veggies appear after
-two rocks have fallen in a round," about as directly as static+live
-evidence gets. What's still *not* pinned down: whether the level-counter
-flower (the user's other hint, tied to the end-of-level jingle) is this
-same sequence under a different skin, or a separate consumer of the same
-5-slot machinery -- `dat_E0A9`'s per-tally lookup is the most likely place
-that distinction would live, and it isn't decoded yet.
+animation just traced live.
+
+**The veggie's point value is now decoded exactly, and it corrects the
+earlier live-correlation guess.** The user reported the actual veggie they
+picked up was worth 1000 points, not 410. Reading `sub_F6C4` further: when
+`ObjSlotRockTally,X` is nonzero it awards `VeggieValueTable[2*(tally-1)]`
+(a BCD lo/mid pair, renamed from `dat_E0F0`) into the score **twice in a
+row** -- two back-to-back calls into the shared score-add routine
+(`rom:sub_DF75` -> `rom:sub_DF7D`) with the identical value. For
+`tally=1`, `VeggieValueTable[0..1]` decodes as 500 points by its own BCD
+encoding; doubled by the repeated call, that's **exactly 1000** -- matching
+the user's report precisely, not just plausibly. `tools/probe-score-writes.lua`
+(new this round, PC- and *caller*-tagged -- every write to `ScoreLo`/
+`ScoreMid`/`ScoreHi` happens from the same few `STA`s inside the shared
+routine regardless of who called it, so the tap reads the JSR return
+address back off the stack to recover the real caller) confirmed `sub_DF75`
+is called from exactly the five sites this predicts, including `rom:F70A`/
+`rom:F716` inside `sub_F6C4`. Later table entries (tally 2-5) decode to
+2500, 4000, 6000, 8000 doubled -- a clean progression inside the manual's
+400-8000 veggie range. The earlier "410, matching the manual's veggie
+point range" note in this same document was a coincidental live-data
+correlation, not a decoded value, and it was wrong -- most likely a nearby
+monster kill (200-500/400-1000 per the manual). Left here rather than
+deleted, per this project's own discipline: retract in place, don't erase.
+
+**The level-counter flower is a separate mechanism, and it's now found.**
+The user clarified directly: the flower is a static, non-interactable
+per-level decoration -- one small flower added each level up to 9, then all
+replaced by a single big flower from level 9 on -- and confirmed it is
+*not* the veggie/ObjSlot family above. `rom:D3EC`, inside the level-init
+routine (`rom:sub_D2C0`, itself called from `rom:sub_D244` -- which runs on
+every level-clear *and* every death/respawn), reads `LevelNumber` and uses
+it (1-based, capped at 18 levels) to index three parallel tables
+(`dat_E8BD`/`dat_E8AA`/`dat_E8D0`), writing the result into three RAM
+cells plus a fixed graphics pointer. A first live check, using the existing
+coarse per-second RAM-snapshot data, found those three cells "never
+changed" across the whole recording and read that as ruling the mechanism
+out. That was the wrong conclusion from a real observation: those same
+three cells are shared scratch space `rom:sub_F901`'s harpoon-position code
+also writes constantly during normal play, so the level-driven value is
+visible for only a couple of frames before being overwritten by unrelated
+writes -- invisible to a once-a-second sample. A dedicated, unthrottled
+PC-tagged write-tap on exactly those three addresses
+(`tools/probe-flower-candidate.lua`) caught it cleanly: the write fires at
+every one of the recording's eleven level transitions, at the right frame,
+with the value exactly matching `dat_E8BD[LevelNumber-1]` decoded straight
+from ROM -- and fires again with the same value on same-level respawns,
+consistent with `sub_D244` running on both. The mechanism is confirmed;
+what the byte values *mean* is not -- they don't show a clean monotonic
+1-9-then-flat count by themselves (levels 1-3 are each unique, then values
+repeat in pairs of levels from level 4 on, flattening to one constant value
+from level 16 on), so whether the raw byte is a literal flower count, a
+graphic-tile ID, or some other level attribute that only indirectly grows
+the flower row hasn't been pinned down -- that would need an actual
+video-frame comparison across levels, not attempted here. See
+`docs/pitfalls.md` ("A periodic RAM snapshot can miss a real, frequent
+write") for the general lesson.
 
 ## What's still open
 
-* Whether the level-counter flower is the same ObjSlot mechanism just
-  closed above, wearing a different graphic, or a separate consumer of it
-  -- `dat_E0A9`'s lookup table is the likely next place to look.
+* What the flower table's byte values actually encode on screen (count vs.
+  graphic/tile ID) -- the mechanism (`rom:D3EC`, once per level) is
+  confirmed live; the visual mapping isn't.
 * `ram_00C8`'s "exactly 2" threshold and the `ram_00F1`/`sub_F2E6` sequence
   it kicks off aren't independently confirmed beyond the manual-line match
-  above -- plausible, not proven byte-by-byte.
+  ("veggies appear after two rocks have fallen in a round") -- plausible,
+  not proven byte-by-byte.
+* `dat_E0A9`'s role in `rom:sub_F6B8` (stage 8, a per-tally lookup used
+  just before the final stage) isn't decoded.
 * `sub_F760`'s reference point (rock position?) isn't confirmed.
 * Which of the harpoon-stun state machine's stages means what (stunned /
   recovering / fully killed), and whether ghost-conversion is really the

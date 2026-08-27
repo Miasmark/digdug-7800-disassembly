@@ -112,6 +112,19 @@ mame a7800 -rompath /path/to/bios -input_directory . \
   cross-referenced against a known single veggie pickup in `run-01.inp`,
   closed the last gap in the jump-table dispatch above and tied it
   together with the rock-settle finding -- see `docs/FINDINGS.md`.
+* `tools/probe-score-writes.lua` PC-, frame-, and *caller*-tags every write
+  to `ScoreLo`/`ScoreMid`/`ScoreHi` (both player slots) -- since every such
+  write happens from inside the same shared score-add routine regardless of
+  who called it, the tap also reads the JSR return address back off the
+  stack (still sitting at `$0100+SP+1/+2` when the tap fires) to recover
+  the real call site. This is what pinned the veggie's exact point value
+  against the user's own report.
+* `tools/probe-flower-candidate.lua` PC-tags every write to three specific
+  RAM cells a level-indexed table lookup writes into -- built to check a
+  candidate for the level-counter flower against real level-transition
+  frames, unthrottled, after a coarse per-second snapshot's silence on
+  those same three cells initially (and wrongly) looked like it ruled the
+  candidate out -- see `docs/pitfalls.md` for what actually happened.
 
 ## Layout
 
