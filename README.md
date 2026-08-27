@@ -106,6 +106,12 @@ mame a7800 -rompath /path/to/bios -input_directory . \
   gap, leading to a second RAM-vector pattern (a computed jump table
   `disasm.py`'s scanner couldn't find on its own) and a strong lead on the
   level-counter flower / rock-fall counter.
+* `tools/probe-veggie-writes.lua` PC-tags every write to two specific
+  zero-page addresses (`$00C5`/`$00FD`, narrowed down from an earlier,
+  too-hot `$00C0`-`$00FF` sweep) -- caught a live 8-stage animation that,
+  cross-referenced against a known single veggie pickup in `run-01.inp`,
+  closed the last gap in the jump-table dispatch above and tied it
+  together with the rock-settle finding -- see `docs/FINDINGS.md`.
 
 ## Layout
 

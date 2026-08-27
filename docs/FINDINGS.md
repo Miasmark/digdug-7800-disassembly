@@ -10,18 +10,19 @@ python3 ../a7800-toolkit/tools/disasm.py "Dig Dug (NTSC) (Atari) (1987) (50CB13F
 python3 ../a7800-toolkit/tools/verify.py "Dig Dug (NTSC) (Atari) (1987) (50CB13F3).a78" -d src
 ```
 
-Static coverage is **47.2%** as traced code (7731/16384 bytes), plus 4446
-bytes of declared data blocks -- **74.3%** accounted for overall, 4207
+Static coverage is **48.0%** as traced code (7864/16384 bytes), plus 4446
+bytes of declared data blocks -- **75.1%** accounted for overall, 4074
 bytes left as an honest gap. Round-trip is byte-identical throughout
-everything documented here. Eight passes in: entry points and the
+everything documented here. Nine passes in: entry points and the
 self-modifying NMI, a full display-list probe fix and the resulting
 `$C000`-`$CFFF` graphics region, the `$E000`-based character sheet, lives/
 score/death, the terrain map with the actual dig action, death/ghosts/
-(tentatively) rocks, the pump/harpoon stun end to end, and a second
-RAM-vector pattern (a computed jump table) that recovered 461 bytes and a
-strong lead on the level-counter flower. A large chunk of `$E1FF`-`$EBEB`
-is still open -- sparse, not dense, so likely a different kind of thing
-than the two confirmed graphics sheets (see below).
+(tentatively) rocks, the pump/harpoon stun end to end, a second
+RAM-vector pattern (a computed jump table) that recovered 497 bytes total,
+and -- closing that gap out completely -- the rock-settle/veggie-appearance
+mechanism disambiguated below. A large chunk of `$E1FF`-`$EBEB` is still
+open -- sparse, not dense, so likely a different kind of thing than the
+two confirmed graphics sheets (see below).
 
 Vectors: `IRQ $EED8` `NMI $C15F` `RESET $D000`.
 
@@ -369,16 +370,81 @@ evidence and aren't disambiguated yet:
   updates earlier, during play.
 
 Both may even be true at once (a rock settling could plausibly drive both a
-veggie-spawn counter and a flower/round tally). Not resolved which, or
-whether they're the same counter -- flagged as the strongest current lead,
-not a closed finding.
+veggie-spawn counter and a flower/round tally). At the time this was
+written, not resolved which, or whether they're the same counter --
+**superseded below.**
+
+## The rock-settle / veggie-appearance gap, closed
+
+Two more pieces of domain knowledge from the user turned this from "strong
+lead" into a mostly-resolved finding: "I picked up a veggie once during the
+session" (a single, findable event in `run-01.inp`), and "rockfall should
+be just triggering the sound and disappearing" (a hint that `sub_F5FB`
+above, which is more involved than that, probably isn't the rock's own
+removal).
+
+**Found the veggie pickup live.** Re-scanning the existing RAM-snapshot data
+for a single isolated excursion (a value that sits at a common baseline the
+entire recording except one brief run) turned up `$00C5`/`$00FD` both
+activating for about 100 frames around frame ~4320-4440, immediately
+followed by a score jump of exactly 410 points (2830 -> 3240) -- inside the
+manual's 400-8000 veggie range and too clean to be coincidence. Neither
+address was in the disassembly yet. `tools/probe-veggie-writes.lua`
+(PC-tagged, narrowed to exactly those two addresses after a too-wide first
+attempt on `$00C0`-`$00FF` drowned in 300k+ hits/3000 frames) caught every
+write: an 8-stage progression, `$00FD` counting up once per frame through
+each stage and `$00C5` incrementing between stages, running frames
+4289-4420 and ending at `$F6C6`.
+
+That address landed inside the still-open 97-byte tail of the same
+jump-table region (`$F6B8`-`$F718`) that `sub_F513`'s table pointed at
+`sub_F6A3`, `sub_F668`, etc. earlier -- and along the way, a second missed
+table target from the original recovery pass turned up too: `rom:F52A`
+(computed correctly at the time but never actually added to `entries`),
+sitting under part of this same live-observed sequence. Added both as
+trial entry points (the same method used for the other table targets) --
+both traced cleanly. `rom:F52A` closed a 36-byte hole first (47.2% ->
+47.4%, gap 4207 -> 4171 bytes), then `rom:F6B8` closed the remaining
+97-byte tail completely (47.4% -> 48.0%, gap 4171 -> 4074 bytes).
+
+**Reading the recovered code disambiguates the whole family.** The jump
+table at `rom:F513` isn't a per-object-*type* dispatch -- it's a per-*stage*
+animation sequencer (`rom:sub_F50D` uses the stage value itself,
+`ObjSlotStage,X`, as the table index) driving a small pool of 5 slots
+(`rom:sub_F4EF` walks `X=4..0`, distinct from the 8 `EnemyStatus` enemy
+slots). The live-observed `$00C5`/`$00FD` sequence is exactly
+`ObjSlotStage`/`ObjSlotTimer` at slot 2. The final stage, `rom:sub_F6B8`,
+reads `ObjSlotRockTally,X`; if a rock has been attributed to this slot (via
+`RockOwnerSlot`, written by `sub_F5FB` when a rock settles) it looks up a
+value by that tally, ends the slot's animation, **and only then** loops the
+8 `EnemyStatus` slots and, for whichever one `RockOwnerSlot` points back at
+this ObjSlot, promotes its settle-latch (bit 6, set by `sub_F5FB`) into the
+confirmed dead/inactive bit (bit 7, from `rom:F71C`) -- the actual removal.
+
+So: **`sub_F5FB` was never the rock's disappearance** -- from the player's
+seat that's exactly what it looks like ("just the sound and disappearing"),
+but the removal is deferred and piggybacks on whichever ObjSlot animation
+claimed the rock, which is the same machinery driving the veggie-appearance
+animation just traced live. That also lines up with a level-scoped counter
+in the same tail: `ram_00C8`, reset to 0 at level-init (`sub_D244`),
+increments once per completed ObjSlot animation, and on hitting **exactly
+2** seeds a follow-on sequence (`ram_00F1`, driven elsewhere by
+`sub_F2E6`) -- which matches the manual's own line, "veggies appear after
+two rocks have fallen in a round," about as directly as static+live
+evidence gets. What's still *not* pinned down: whether the level-counter
+flower (the user's other hint, tied to the end-of-level jingle) is this
+same sequence under a different skin, or a separate consumer of the same
+5-slot machinery -- `dat_E0A9`'s per-tally lookup is the most likely place
+that distinction would live, and it isn't decoded yet.
 
 ## What's still open
 
-* The level-counter flower / rock-settle counter (see above) -- a strong
-  lead, not a confirmed finding. Disambiguating it further would mean
-  correlating the exact value written against on-screen flower count, or
-  finding where the `$2500`-page RAM actually gets rendered as graphics.
+* Whether the level-counter flower is the same ObjSlot mechanism just
+  closed above, wearing a different graphic, or a separate consumer of it
+  -- `dat_E0A9`'s lookup table is the likely next place to look.
+* `ram_00C8`'s "exactly 2" threshold and the `ram_00F1`/`sub_F2E6` sequence
+  it kicks off aren't independently confirmed beyond the manual-line match
+  above -- plausible, not proven byte-by-byte.
 * `sub_F760`'s reference point (rock position?) isn't confirmed.
 * Which of the harpoon-stun state machine's stages means what (stunned /
   recovering / fully killed), and whether ghost-conversion is really the
