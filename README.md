@@ -101,6 +101,11 @@ mame a7800 -rompath /path/to/bios -input_directory . \
   (`sub_D8E2`/`sub_FD43`), by pointing straight at the code instead of
   guessing further from static reading. Writes to ordinary RAM can't be
   MARIA DMA misattribution, so every PC found this way is a real writer.
+* `tools/probe-flower-writes.lua` PC-tags every write to `$2500`-`$25FF`
+  (frame-tagged too) -- caught real execution inside a 506-byte untraced
+  gap, leading to a second RAM-vector pattern (a computed jump table
+  `disasm.py`'s scanner couldn't find on its own) and a strong lead on the
+  level-counter flower / rock-fall counter.
 
 ## Layout
 

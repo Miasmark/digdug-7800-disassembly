@@ -26,10 +26,15 @@
   "entries": [
     "rom:EED8",
     "rom:C15F",
-    "rom:D000"
+    "rom:D000",
+    "rom:F522",
+    "rom:F552",
+    "rom:F668",
+    "rom:F6A3"
   ],
   "ram_vectors": [
-    ["0x1FBE", "0x1FBF"]
+    ["0x1FBE", "0x1FBF"],
+    ["0xD2", "0xD3"]
   ],
   "bankat": {},
   "labels": {
@@ -52,6 +57,8 @@
     "7B": "HarpoonTargetSlot"
   },
   "comments": {
+    "rom:F513": "CONFIRMED, found via a PC-tagged write-tap on $2500-$25FF (tools/probe-flower-writes.lua, run-01.inp) that caught real execution inside what was an untraced gap: a per-object dispatch. LDA dat_E0B0,Y/STA ram_00D2 and LDA dat_E0B8,Y/STA ram_00D3 build a jump target from an 8-entry low/high table, then JMP (ram_00D2). disasm.py's ram_vectors scan couldn't find this on its own -- the LDA/STA pair that seeds ram_00D2/00D3 is itself inside the region only reachable through this same jump, a chicken-and-egg the scanner has no way to resolve from outside. Computed all 8 targets by hand from the raw table bytes (2 of the 8, Y=0/1, land outside plausible ROM/code space and are presumably unused slots) and added the 4 valid, distinct ones to `entries` directly -- the same trial-entry-point method method.md already documents, just applied after computing the targets from a table dump instead of guessing an address. Recovered 461 bytes of real code (44.3%->47.2%).",
+    "rom:F5FB": "CONFIRMED shape, found via the same probe as rom:F513: inside a per-object loop (Y counts down 7..0) that calls rom:sub_D622 (a terrain-based fall/settle check, not yet independently examined) and updates the object's position on a hit -- reads as falling-object (rock) physics. The first time a given object's EnemyStatus bit 6 is clear when it settles, writes ram_00CE (the dispatch index this whole routine was entered with) into a specific slot of ram_2500-page RAM (confirmed live: $2550/$2554/$2555, values 3-4, roughly one write per level-ish timescale across run-01.inp) and plays a sound, then sets EnemyStatus bit 6 (a 'this object has already been counted' latch, preventing re-triggering). Also checks HarpoonTargetSlot against the current object and resets it if they match (rom:sub_F7C8) -- consistent with a falling/settled rock clearing itself as a stun target. CANDIDATE for the manual's 'veggies appear after two rocks have fallen' trigger (the ram_2500-page write) and/or the level-counter flower row the user specifically flagged as tied to the end-of-level sequence: rom:sub_D1BE switches the active display list to this same rare $2500 page right after the level-clear jingle (rom:sub_DF33), which fits a 'this data accumulates during play via rock-settle events, gets displayed at level-end' story better than a single write-once-per-level-clear mechanism would -- but the exact value written and its full meaning (which icon, how it grows 'bigger') aren't decoded, and this may turn out to be the rock/veggie counter with the flower row being a separate, still-unfound element of the same $2500 page. Not fully disambiguated -- presented as the strongest current lead, not a closed finding.",
     "rom:D057": "CONFIRMED: the boot-time RAM init. Doesn't clear whole pages the way Centipede/Ballblazer's does -- clears specific, narrow ranges directly (ram_007E-0088, ram_0040-0052 paired with ram_24C0-24D2, a few ram_24C9-24D2 sub-fields) rather than one big page-sweep loop. Also copies dat_EACC/dat_C008 (both inside the confirmed chr_rom_C000/gfx_C000 region) into ram_2400,Y -- a display-list-adjacent init, not yet fully traced.",
     "rom:DF7D": "CONFIRMED (SED at rom:DF80, BCD arithmetic; live-checked against tools/probe-ram-snapshots.lua, run-01.inp): the score-add routine. Adds into ScoreLo/Mid/Hi,X (X = CurrentPlayer) with carry chained across all three BCD bytes, then checks the new high-digit value (CMP #$02, AND #$0F/BEQ, CMP #$05) -- matching the manual's extra-life rule (20,000 and 50,000, then every 50,000 after: https://atariage.com/manual_html_page.php?SoftwareID=2126) almost exactly by shape, though the precise digit-place arithmetic hasn't been traced byte-by-byte. On a match, falls into rom:DF9E which increments LivesRemaining,X (capped at 10) and calls sub_DD3B (also called from the death-recovery path at rom:DC98 -- likely a shared 'lives display update' or 'life gained/restored' notification, not yet named).",
     "rom:D298": "CONFIRMED: terrain/dirt map level-init. Computes LevelNumber,X (X=CurrentPlayer; confirmed as a level/round number by rom:sub_DF33's level-clear check, which increments it) mod 10 via repeated SBC #$0A, then fills a large span of TerrainMap with one of three fixed values ($20/$22/$1E) depending on the result -- a level-dependent dirt pattern. rom:sub_D2C0 (called right before, rom:D256) does a second pass: fills TerrainMap+15 through the page end with $24 (a border/edge value, matching sub_D660's own $24 threshold), then carves specific already-open cells ($4C, plus $4A into the adjacent ram_25FF page) at fixed positions from dat_E7BF (the same position table sub_D16C's display-list builder uses) -- likely the level's starting tunnel entrance(s).",

@@ -34,5 +34,6 @@ live-slots-diag-out.json
 dpph-history-out.json
 ram-snapshots-out.json
 terrain-writes-out.json
+flower-writes-out.json
 
 .DS_Store

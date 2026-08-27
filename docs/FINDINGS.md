@@ -10,16 +10,18 @@ python3 ../a7800-toolkit/tools/disasm.py "Dig Dug (NTSC) (Atari) (1987) (50CB13F
 python3 ../a7800-toolkit/tools/verify.py "Dig Dug (NTSC) (Atari) (1987) (50CB13F3).a78" -d src
 ```
 
-Static coverage is **44.3%** as traced code (7255/16384 bytes), plus 4446
-bytes of declared data blocks -- **71.4%** accounted for overall, 4683
+Static coverage is **47.2%** as traced code (7731/16384 bytes), plus 4446
+bytes of declared data blocks -- **74.3%** accounted for overall, 4207
 bytes left as an honest gap. Round-trip is byte-identical throughout
-everything documented here. Seven passes in: entry points and the
+everything documented here. Eight passes in: entry points and the
 self-modifying NMI, a full display-list probe fix and the resulting
 `$C000`-`$CFFF` graphics region, the `$E000`-based character sheet, lives/
 score/death, the terrain map with the actual dig action, death/ghosts/
-(tentatively) rocks, and the pump/harpoon stun end to end. A large chunk of
-`$E1FF`-`$EBEB` is still open -- sparse, not dense, so likely a different
-kind of thing than the two confirmed graphics sheets (see below).
+(tentatively) rocks, the pump/harpoon stun end to end, and a second
+RAM-vector pattern (a computed jump table) that recovered 461 bytes and a
+strong lead on the level-counter flower. A large chunk of `$E1FF`-`$EBEB`
+is still open -- sparse, not dense, so likely a different kind of thing
+than the two confirmed graphics sheets (see below).
 
 Vectors: `IRQ $EED8` `NMI $C15F` `RESET $D000`.
 
@@ -323,16 +325,66 @@ detection, rather than guessing at any one piece in isolation:
   stun pattern), and sets the flag `sub_FA33`'s state machine (above)
   checks to start the stun-recovery sequence. This is the actual stun hit.
 
-**Still open**: the level-counter flower -- no lead yet.
+## A second RAM-vector pattern, and a rock/flower candidate
+
+The user's own domain knowledge redirected this investigation productively:
+the level-counter flower belongs with the end-of-level sequence, after the
+jingle, and either a new flower appears per level or an existing one grows
+bigger at some point. That pointed straight at the rare `$2500`-page DLL
+`sub_D1BE` switches to right after `sub_DF33`'s level-clear jingle wait --
+followed it and it led somewhere real, though not fully resolved.
+
+**Found a second kind of RAM-vector -- a computed jump table, not a
+scanner-visible one.** `tools/probe-flower-writes.lua` (a PC-tagged write-tap
+on `$2500`-`$25FF`, same idea as the `TerrainMap` probe) caught real
+execution inside what was, until now, a 506-byte untraced gap
+(`$F522`-`$F71B`). The code there (`rom:F513`) builds a jump target from an
+8-entry low/high table (`dat_E0B0`/`dat_E0B8`) indexed by `Y`, then
+`JMP (ram_00D2)`. `disasm.py`'s `ram_vectors` scanner couldn't find this on
+its own: the `LDA`/`STA` pair that seeds the vector is itself only reachable
+*through* this same jump -- a chicken-and-egg the scanner has no way into
+from outside. Computed all 8 targets by hand from the raw table bytes (2 of
+the 8 land outside plausible code space and are presumably unused slots)
+and added the 4 real, distinct ones to `entries` directly -- the same
+trial-entry-point method this project has used before, just aimed with a
+computed address instead of a guess. **Recovered 461 bytes of real code**
+(44.3% -> 47.2%, gap 4668 -> 4207 bytes).
+
+**One of the newly-recovered routines (`rom:sub_F5FB`) is a strong,
+not-yet-fully-confirmed candidate for the rock-fall / flower-counter
+mechanism.** It's a per-object loop (falling-object physics -- calls a
+terrain-based settle check and updates position on a hit) that, the first
+time a given object settles (gated by an `EnemyStatus` bit-6 latch so it
+only fires once), writes a small value (live-observed: 3-4) into a specific
+slot of the `$2500`-page RAM and plays a sound. Two readings both fit the
+evidence and aren't disambiguated yet:
+
+* The manual's "veggies appear after two rocks have fallen in a round" --
+  this could be that counter.
+* The level-counter flower itself, if the `$2500` page holds a strip of
+  per-level icons that accumulate through play and are simply *displayed*
+  (via `sub_D1BE`'s DLL switch) at level-end, rather than written all at
+  once at the jingle. This reading fits the user's framing better -- the
+  flower belongs to the end-of-level *moment* even if the underlying data
+  updates earlier, during play.
+
+Both may even be true at once (a rock settling could plausibly drive both a
+veggie-spawn counter and a flower/round tally). Not resolved which, or
+whether they're the same counter -- flagged as the strongest current lead,
+not a closed finding.
 
 ## What's still open
 
-* The level-counter flower -- no lead yet.
-* Rock physics -- `sub_F760`'s reference point (rock position?) isn't
-  confirmed, and there's no lead yet on rocks *falling* specifically.
+* The level-counter flower / rock-settle counter (see above) -- a strong
+  lead, not a confirmed finding. Disambiguating it further would mean
+  correlating the exact value written against on-screen flower count, or
+  finding where the `$2500`-page RAM actually gets rendered as graphics.
+* `sub_F760`'s reference point (rock position?) isn't confirmed.
 * Which of the harpoon-stun state machine's stages means what (stunned /
   recovering / fully killed), and whether ghost-conversion is really the
   same sequence or a separate path sharing the same plumbing.
+* `rom:sub_D622` (the fall/settle check `sub_F5FB` calls) hasn't been
+  independently examined.
 * Exactly where/how digging awards its 10-points-per-chunk score, and the
   contents of the erosion lookup tables (how many "partially dug" stages a
   cell walks through).
