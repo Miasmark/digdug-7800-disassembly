@@ -2,8 +2,8 @@
 
 A byte-identical disassembly and memory-map investigation of *Dig Dug*
 (NTSC, Atari, 1987), built with
-[a7800-toolkit](https://github.com/) and MAME as a live-verification
-instrument, not just a static reader.
+[a7800-toolkit](https://github.com/Miasmark/a7800-toolkit) and MAME as a
+live-verification instrument, not just a static reader.
 
 **This repo does not contain the ROM.** Supply your own legally-owned dump
 (`Dig Dug (NTSC) (Atari) (1987) (50CB13F3).a78`, alongside a 7800 BIOS) to

@@ -123,7 +123,7 @@ as Centipede's PC-tagged DMA-misattribution filter -- an "impossible"
 address is disqualifying regardless of what produced it. The remaining 732
 references are the trustworthy dataset everything below is built on.
 
-## What's confirmed (continued)
+## The `$C000` graphics region, confirmed
 
 **`$C000`-`$CFFF` is one graphics/data resource**, confirmed by the filtered
 live data (dense and consistent across every page `$C0` through `$CF`) and
@@ -680,6 +680,18 @@ assumed resolved. This is plausibly a genuine difference between what
 that source documents and this specific Atari 7800 port's own
 implementation, not an error on either side -- see the veggie point-value
 table below for the same pattern.
+
+None of this is surprising on its own -- the reference was never
+guaranteed to be exactly the release code this cartridge shipped, and a
+7800 port rewriting an arcade-derived subsystem is unremarkable. What *is*
+an open question worth a note: why the swap, specifically, from an
+arithmetic computation to a table read for these two spots? Two plausible
+motives, neither confirmed: the arithmetic was too slow for the 7800's
+tighter per-frame budget (a real constraint the arcade board wouldn't have
+had in the same way), or it was carrying a bug on this port that a fixed
+table sidestepped rather than fixed properly. Nothing in this project's
+own disassembly points to one over the other, and it will probably stay
+open -- noted here rather than guessed at.
 
 **Disagreed on absolute values, kept this project's own reading:** the
 veggie point-value table (`VeggieValueTable`/`rom:F6C4`) decoded here is
