@@ -227,6 +227,32 @@ three fixed values (`$20`/`$22`/`$1E`) depending on a level number computed
 mod 10, a `$24` border/edge fill, and a few `$4C`/`$4A` "already open" cells
 at fixed starting-tunnel positions.
 
+**Corrected 2026-11-08: page `$26` is drawn in indirect (character) mode,
+two bytes per character, not direct mode.** The header bytes settle this.
+`sub_D16C` writes the mode byte `$60` into each 5-byte header. Bit 6 marks
+the 5-byte form, bit 5 is the indirect flag, and bit 7 (write mode) is
+clear. So MARIA reads `TerrainMap` bytes as character indices and fetches
+the graphics from the `CHARBASE` page (`$E0`, the sheet confirmed above).
+`CTRL` is `$50` whenever the game is drawing. Leaving out the reset's `$7F`
+at `rom:D00B`, every `CTRL` write is `$50` (`rom:D019`, `DD8F`, `DEAE`, `DEBE`,
+`DF6E`, `EEDC`), with two exceptions: `$70` at `rom:DE93`, which turns DMA
+off, and `$4B` at `rom:EEF3`. That `$4B` comes from the `$EED9`/`$EEF0` DLI
+ping-pong, and only `sub_DDB1` enters it. Once it has switched to the
+`$2500` list, it stores `$D9` into `ram_1FBE`, which arms the `$EED9` stage.
+That stage writes `CTRL` `$50` / `CHARBASE` `$E0` and re-arms `$F0`, and
+only then does the `$EEF0` stage write `$4B`/`$39` and re-arm `$D9`. No
+other `ram_1FBE` write (`$57` at `D072`/`DD97`/`EED0`, `$93` at `EE8E`)
+enters the pair. The gameplay DLI stages (`VEC_EE57` through `$EEB4`) write
+colours and counters and never touch `CTRL`. Bit 4 of `$50` (character
+width) is set, so each index fetches two graphics bytes in 160A. The map's
+contents agree: every value the level-init code stores (`$1E`, `$20`,
+`$22`, `$24`, `$4A`, `$4C`, `$88`, `$8C`) is even. Not every map value is
+even, though: `rom:DD7D` ORs bit 0 into `$2602`, on the row the `X=$0F`
+header reads, and two-byte characters allow that. The rest of the paragraph
+above still holds. The map is still a RAM-resident tile buffer that the CPU
+builds; only "direct-mode graphic page" was wrong. Recorded at the source
+too, in `rom:D16C`'s comment.
+
 **`sub_D660` is the terrain-cell classifier**, confirmed by using the exact
 same threshold values the init code fills the map with (`CMP #$24`,
 `CMP #$1E`) to bucket a cell into "solid" / "open" / "packed dirt."
